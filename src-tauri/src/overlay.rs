@@ -59,6 +59,12 @@ pub fn menu_finish() {
     crate::input::exit_menu_mode();
 }
 
+/// 前端诊断日志落盘（与钩子日志同文件，便于实机排查事件链路）。
+#[tauri::command]
+pub fn log_line(line: String) {
+    crate::input::hlog(&format!("[ui] {line}"));
+}
+
 /// 读取当前设置。
 #[tauri::command]
 pub fn get_settings(app: AppHandle) -> Settings {

@@ -1,10 +1,10 @@
 import './style.css';
 import type { Application } from 'pixi.js';
-import { Container, Graphics, Sprite, Texture } from 'pixi.js';
+import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { initPixi, installRenderWatchdog } from './engine/pixi';
 import { bindParticles, prewarmEffectTextures } from './effects/particles';
 import { playAirstrike, isAirstrikeRunning } from './effects/airstrike';
-import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
+import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, menuHoverInfo, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
 import { initAudio } from './effects/audio';
 
 interface ScreenPoint {
@@ -49,6 +49,7 @@ async function setupTauriMode(app: Application): Promise<void> {
 
   // 修饰键+右键：直接触发技能
   await listen<ScreenPoint>('airstrike-trigger', async (e) => {
+    void invoke('log_line', { line: 'got airstrike-trigger' });
     try {
       const l = await toLocal(e.payload);
       void playAirstrike(app, l.x, l.y);
@@ -59,20 +60,44 @@ async function setupTauriMode(app: Application): Promise<void> {
 
   // 轮盘：唤出后常驻（屏蔽模式），左键点选结算，右键/超时取消。
   // 移动事件 30Hz 且几何已缓存，处理路径内无任何 IPC，保证跟手。
+  let moveLogged = false;
   await listen<ScreenPoint>('menu-open', async (e) => {
-    const l = await toLocal(e.payload);
-    openMenu(l.x, l.y);
+    moveLogged = false;
+    void invoke('log_line', { line: `got menu-open ${e.payload.screenX},${e.payload.screenY}` });
+    let l = await toLocal(e.payload);
+    // 偶发坐标异常防御：换算落 (0,0) 而原始坐标非 (0,0) 时重取一次窗口几何
+    if (l.x === 0 && l.y === 0 && (e.payload.screenX !== 0 || e.payload.screenY !== 0)) {
+      overlayGeo = null;
+      l = await toLocal(e.payload);
+      void invoke('log_line', { line: `geo refetch -> ${Math.round(l.x)},${Math.round(l.y)}` });
+    }
+    try {
+      openMenu(l.x, l.y);
+      void invoke('log_line', { line: `menu opened at ${Math.round(l.x)},${Math.round(l.y)}` });
+    } catch (err) {
+      void invoke('log_line', { line: `OPEN FAILED: ${String(err)}` });
+    }
   });
   await listen<ScreenPoint>('menu-move', (e) => {
     if (!overlayGeo || !isMenuOpen()) return;
+    if (!moveLogged) {
+      moveLogged = true;
+      void invoke('log_line', { line: `first move ${e.payload.screenX},${e.payload.screenY}` });
+    }
     updateHover((e.payload.screenX - overlayGeo.ox) / overlayGeo.scale, (e.payload.screenY - overlayGeo.oy) / overlayGeo.scale);
   });
   await listen('menu-pick', () => {
+    const hover = menuHoverInfo();
+    void invoke('log_line', { line: `got menu-pick hover=${hover.hovered} center=${hover.centerHover}` });
     const r = menuPick();
+    void invoke('log_line', { line: `pick closed=${r.closed} def=${r.def?.id ?? '-'}` });
     if (r.closed) void invoke('menu_finish'); // 仅在轮盘真正关闭时解除输入屏蔽
     if (r.def) void r.def.run(r.x, r.y);
   });
-  await listen('menu-cancel', () => cancelMenu());
+  await listen('menu-cancel', () => {
+    void invoke('log_line', { line: 'got menu-cancel' });
+    cancelMenu();
+  });
 
   // Pixi 画布就绪后再显示覆盖层，避免出现白闪
   await invoke('overlay_ready');
@@ -107,8 +132,8 @@ function setupBrowserTestMode(app: Application): void {
   initAudio();
 }
 
-/** 渲染器预热：启动时离屏渲染一帧全部特效贴图 + Sprite/Graphics 着色器，
- *  把 GPU 纹理上传和着色器编译都提前到启动阶段，点击特效时零冷启动。 */
+/** 渲染器预热：启动时离屏渲染一帧全部特效贴图 + Sprite/Graphics/Text 着色器，
+ *  把 GPU 纹理上传、着色器编译和字体栅格化都提前到启动阶段，点击特效时零冷启动。 */
 function prewarmRenderer(app: Application): void {
   const warm = new Container();
   const quad = new Sprite(Texture.WHITE);
@@ -118,6 +143,14 @@ function prewarmRenderer(app: Application): void {
   shape.circle(0, 0, 12).fill({ color: 0xff0000 });
   shape.blendMode = 'add';
   warm.addChild(shape);
+  // 预热轮盘用到的全部文字字形（中文首渲栅格化是首开卡顿源）
+  const family = '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif';
+  const warmText = new Text({
+    text: '给我炸轨道打击导弹雨陨石坠落取消呼叫战机空袭此处天基动能武器饱和导弹攻击天外来物轰炸敬请期待0123456789',
+    style: { fontFamily: family, fontSize: 18, fontWeight: '600', fill: 0x333333 },
+  });
+  warmText.position.set(-600, -600);
+  warm.addChild(warmText);
   prewarmEffectTextures().forEach((tex, i) => {
     const s = new Sprite(tex);
     s.position.set(-260, -320 + (i % 6) * 90 + Math.floor(i / 6) * 140);

@@ -222,6 +222,16 @@ class RadialMenu {
     this.centerHover = false;
     this.pressedIdx = -1;
     this.closing = false;
+    // 丢弃上一会话的引用：已 destroy 的 Graphics 再 clear() 会抛
+    // "Cannot read properties of null"，导致重开轮盘构建中断
+    this.sectorGfx = [];
+    this.icons = [];
+    this.titles = [];
+    this.descs = [];
+    this.emphasis = null;
+    this.centerG = null;
+    this.centerC = null;
+    this.centerText = null;
 
     this.view = new Container();
     this.view.position.set(this.centerX, this.centerY);
@@ -248,6 +258,11 @@ class RadialMenu {
       gsap.to(this.view.scale, { x: this.scale, y: this.scale, duration: 0.18, ease: 'power2.out' }),
     );
     this.onOpen?.();
+  }
+
+  /** 诊断快照（生产也可用）：当前悬停状态。 */
+  hoverInfo(): { hovered: number; centerHover: boolean; open: boolean } {
+    return { hovered: this.hovered, centerHover: this.centerHover, open: this.isOpen() };
   }
 
   /** 指针移动（屏幕坐标）：命中检测 + 状态切换，只重绘变化的部分。 */
@@ -629,6 +644,11 @@ export function updateHover(x: number, y: number): void {
 
 export function menuPick(): { closed: boolean; def?: EffectDef; x: number; y: number } {
   return menu ? menu.pick() : { closed: false, x: 0, y: 0 };
+}
+
+/** 诊断：轮盘当前悬停状态（生产可用，供日志排查）。 */
+export function menuHoverInfo(): { hovered: number; centerHover: boolean; open: boolean } {
+  return menu ? menu.hoverInfo() : { hovered: -1, centerHover: false, open: false };
 }
 
 export function cancelMenu(): void {

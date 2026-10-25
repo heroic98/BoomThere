@@ -19,6 +19,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             overlay::overlay_ready,
             overlay::menu_finish,
+            overlay::log_line,
             overlay::get_settings,
             overlay::set_settings,
             overlay::open_settings,

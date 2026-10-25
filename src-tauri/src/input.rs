@@ -80,12 +80,22 @@ pub fn vk_from_name(name: &str) -> Option<u8> {
     }
 }
 
+/// 诊断日志：追加到 %TEMP%\boomthere-hook.log（钩子与前端共用，用于实机排查）。
+pub fn hlog(msg: &str) {
+    use std::io::Write;
+    let path = std::env::temp_dir().join("boomthere-hook.log");
+    if let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(f, "{} {msg}", now_ms());
+    }
+}
+
 pub fn set_menu_modifier(vk: u8) {
     MENU_VK.store(vk, Ordering::SeqCst);
 }
 
 /// 前端结算完毕，退出轮盘屏蔽模式、恢复正常输入。
 pub fn exit_menu_mode() {
+    hlog("[hook] exit_menu_mode (menu_finish)");
     MENU_MODE.store(false, Ordering::SeqCst);
     MENU_OPENED_AT.store(0, Ordering::SeqCst);
 }
@@ -99,6 +109,9 @@ fn now_ms() -> u64 {
 
 /// 安装钩子：事件转发线程 + 光标轮询线程 + 带消息循环的钩子线程。
 pub fn install(app: AppHandle) {
+    // 每次启动清空诊断日志
+    let _ = std::fs::write(std::env::temp_dir().join("boomthere-hook.log"), "");
+    hlog("[hook] installed");
     let (tx, rx) = mpsc::channel::<(u8, i32, i32)>();
     let _ = EVENT_TX.set(tx.clone());
 
@@ -117,6 +130,7 @@ pub fn install(app: AppHandle) {
         }
         let opened = MENU_OPENED_AT.load(Ordering::Relaxed);
         if opened != 0 && now_ms() - opened > MENU_TIMEOUT_MS {
+            hlog("[hook] menu timeout -> cancel");
             exit_menu_mode();
             let _ = tx.send((EV_MENU_CANCEL, 0, 0));
             continue;
@@ -172,6 +186,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             WM_LBUTTONDOWN => {
                 if MENU_MODE.load(Ordering::Relaxed) {
                     // 点选：交给前端判定（启用片发射 / 禁用片抖动 / 空白取消）
+                    hlog("[hook] LBD pick");
                     dispatch(EV_MENU_PICK, info.pt.x, info.pt.y);
                     return LRESULT(1);
                 }
@@ -184,18 +199,21 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
             WM_RBUTTONDOWN => {
                 if MENU_MODE.swap(false, Ordering::SeqCst) {
                     // 轮盘打开期间右键 = 取消
+                    hlog("[hook] RBD -> stale-cancel (menu-close)");
                     MENU_OPENED_AT.store(0, Ordering::SeqCst);
                     dispatch(EV_MENU_CANCEL, info.pt.x, info.pt.y);
                     return LRESULT(1);
                 }
                 if is_down(STRIKE_VK) {
                     // 技能触发：吞掉按下并成对吞掉释放，防止原生菜单
+                    hlog("[hook] RBD -> strike");
                     SWALLOW_RIGHT_BUTTON.store(true, Ordering::SeqCst);
                     dispatch(EV_STRIKE, info.pt.x, info.pt.y);
                     return LRESULT(1);
                 }
                 if is_down(MENU_VK.load(Ordering::Relaxed)) {
                     // 唤出轮盘：进入屏蔽模式；右键释放不关闭，等待点选
+                    hlog("[hook] RBD -> menu-open");
                     MENU_MODE.store(true, Ordering::SeqCst);
                     MENU_OPENED_AT.store(now_ms(), Ordering::SeqCst);
                     SWALLOW_RIGHT_BUTTON.store(true, Ordering::SeqCst);
@@ -205,6 +223,7 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     dispatch(EV_MENU_OPEN, info.pt.x, info.pt.y);
                     return LRESULT(1);
                 }
+                hlog("[hook] RBD -> passthrough (no modifier)");
             }
             WM_RBUTTONUP => {
                 if SWALLOW_RIGHT_BUTTON.swap(false, Ordering::SeqCst) {
