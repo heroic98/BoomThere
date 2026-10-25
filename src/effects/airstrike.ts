@@ -127,11 +127,48 @@ function runEffect(app: Application, tx: number, ty: number): Promise<void> {
 let jetTex: Texture | null = null;
 let bombTex: Texture | null = null;
 
+/**
+ * 战机换色：钢蓝装甲 → 珍珠白（保留明暗层次），青色引擎/座舱发光原样保留。
+ * 像素规则：亮青（高饱和 + 高亮度 + 蓝分量高）视为发光部件不动；
+ * 其余船体做明度重映射（v' = 140 + v*0.45）并降饱和 55%，变成白银色系。
+ */
+function whitenPixels(data: ImageData): void {
+  const p = data.data;
+  for (let i = 0; i < p.length; i += 4) {
+    const a = p[i + 3];
+    if (!a) continue;
+    const r = p[i];
+    const g = p[i + 1];
+    const b = p[i + 2];
+    const max = Math.max(r, g, b);
+    const min = Math.min(r, g, b);
+    const sat = max === 0 ? 0 : (max - min) / max;
+    const isGlow = sat > 0.4 && max > 150 && b >= g; // 亮青发光件
+    if (isGlow) continue;
+    const v2 = 140 + max * 0.45; // 明度重映射到白银区间，保留相对明暗
+    const ratio = max > 0 ? v2 / max : 1;
+    const desat = 0.55;
+    p[i] = Math.min(255, r * ratio * (1 - desat) + v2 * desat);
+    p[i + 1] = Math.min(255, g * ratio * (1 - desat) + v2 * desat);
+    p[i + 2] = Math.min(255, b * ratio * (1 - desat) + v2 * desat);
+  }
+}
+
 /** 启动时预加载机体贴图（drawJet / drawBomb 同步取用）。 */
 export async function preloadAirstrikeAssets(): Promise<void> {
-  const [j, b] = await Promise.all([Assets.load(jetAsset), Assets.load(bombAsset)]);
-  jetTex = j;
-  bombTex = b;
+  const [jet, bomb] = await Promise.all([Assets.load(jetAsset), Assets.load(bombAsset)]);
+  // 战机换色：从纹理源画到画布做像素级珍珠白处理
+  const src = jet.source.resource as CanvasImageSource;
+  const cv = document.createElement('canvas');
+  cv.width = jet.source.width;
+  cv.height = jet.source.height;
+  const ctx = cv.getContext('2d')!;
+  ctx.drawImage(src, 0, 0);
+  const data = ctx.getImageData(0, 0, cv.width, cv.height);
+  whitenPixels(data);
+  ctx.putImageData(data, 0, 0);
+  jetTex = Texture.from(cv);
+  bombTex = bomb;
 }
 
 /**
