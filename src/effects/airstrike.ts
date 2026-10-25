@@ -128,11 +128,13 @@ let jetTex: Texture | null = null;
 let bombTex: Texture | null = null;
 
 /**
- * 战机高达三色涂装：白装甲 / 高达蓝骨架 / 红色部件，青色引擎发光保留。
- * - 亮青（高饱和+高亮度+蓝分量高）→ 引擎/座舱发光，原样保留
- * - 机鼻（顶部中央）与两翼尖（自动定位最宽处）→ 高达红
- * - 中央机身带 + 暗部（v<95）→ 高达蓝（保留明暗层次）
- * - 其余装甲 → 纯白（明度下限 236，保留高光层次）
+ * 战机高达三色涂装 v2（离线迭代定稿的规则，通道序 RGBA）：
+ * - 烘焙软阴影（半透明暗块）→ 原样保留
+ * - 机鼻锥（292,26,350,140）+ 双翼尖（自动定位区）→ 高达红
+ * - 中央脊线带（x 258-342, y 140-470）→ 高达蓝
+ * - 引擎涡轮圈（(152,398)/(452,398) r65）→ 青色原样保留
+ * - 青色发光（引擎/喷口/座舱）→ 原样保留
+ * - 其余装甲 → 纯白（明度下限 240，保留高光层次）
  */
 function gundamPaint(data: ImageData, w: number, h: number): void {
   const p = data.data;
@@ -144,8 +146,8 @@ function gundamPaint(data: ImageData, w: number, h: number): void {
   let tipLy = 0;
   let tipRx = 0;
   let tipRy = 0;
-  const y0 = Math.floor(h * 0.55);
-  const y1 = Math.floor(h * 0.85);
+  const y0 = Math.floor(h * 0.52);
+  const y1 = Math.floor(h * 0.71);
   for (let y = y0; y < y1; y++) {
     for (let x = 0; x < w; x++) {
       if (p[(y * w + x) * 4 + 3] > 40) {
@@ -167,8 +169,9 @@ function gundamPaint(data: ImageData, w: number, h: number): void {
     }
   }
 
-  const RED = [226, 62, 62];
-  const BLUE = [48, 92, 198];
+  const inRect = (x: number, y: number, x0: number, y0: number, x1: number, y1: number): boolean =>
+    x >= x0 && x <= x1 && y >= y0 && y <= y1;
+
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       const i = (y * w + x) * 4;
@@ -180,35 +183,45 @@ function gundamPaint(data: ImageData, w: number, h: number): void {
       const min = Math.min(r, g, b);
       const s = v === 0 ? 0 : (v - min) / v;
 
-      // 红色部件：机鼻 + 双翼尖
-      const inNose = y < h * 0.075 && Math.abs(x - cx) < w * 0.16;
-      const dTip = Math.min(Math.hypot(x - tipLx, y - tipLy), Math.hypot(x - tipRx, y - tipRy));
-      if (inNose || dTip < w * 0.05) {
-        const k = 0.3 + 0.7 * (v / 255);
-        p[i] = RED[0] * k;
-        p[i + 1] = RED[1] * k;
-        p[i + 2] = RED[2] * k;
+      // 烘焙软阴影 → 原样保留
+      if (p[i + 3] < 200 && v < 90) continue;
+
+      // 区域定义（640 素材空间）
+      const inNose = inRect(x, y, 292, 26, 350, 140);
+      const inSpine = x >= cx - 42 && x <= cx + 42 && y >= 140 && y <= 470;
+      const wingLtip = inRect(x, y, tipLx, tipLy - 10, tipLx + 90, tipLy + 115);
+      const wingRtip = inRect(x, y, tipRx - 88, tipRy - 10, tipRx, tipRy + 115);
+      const dTurL = (x - 152) ** 2 + (y - 398) ** 2;
+      const dTurR = (x - 452) ** 2 + (y - 398) ** 2;
+      const inTurbine = dTurL < 4225 || dTurR < 4225;
+
+      // 红色部件（机鼻 + 翼尖）— 先于青色规则
+      if (inNose || (wingLtip && !inTurbine) || (wingRtip && !inTurbine)) {
+        const k = 0.5 + 0.5 * (v / 255);
+        p[i] = Math.min(255, 52 * k);
+        p[i + 1] = Math.min(255, 48 * k);
+        p[i + 2] = Math.min(255, 226 * k);
         continue;
       }
 
-      // 青色引擎/座舱发光保留
+      // 青色引擎/喷口/座舱发光保留
       if (s > 0.4 && v > 150 && b >= g) continue;
+      if (inTurbine && s > 0.15) continue;
 
-      // 中央机身带 + 暗部 → 高达蓝
-      const inBand = ((x - cx) / (w * 0.2)) ** 2 + ((y - cy) / (h * 0.24)) ** 2 < 1;
-      if (inBand || v < 95) {
-        const k = 0.35 + 0.65 * (v / 255);
-        p[i] = Math.min(255, BLUE[0] * k + r * 0.12);
-        p[i + 1] = Math.min(255, BLUE[1] * k + g * 0.12);
-        p[i + 2] = Math.min(255, BLUE[2] * k + b * 0.12);
+      // 中央脊线带 → 高达蓝
+      if (inSpine) {
+        const k = 0.5 + 0.5 * (v / 255);
+        p[i] = Math.min(255, 60 * k);
+        p[i + 1] = Math.min(255, 102 * k);
+        p[i + 2] = Math.min(255, 198 * k);
         continue;
       }
 
-      // 其余装甲 → 纯白（下限 236，保留高光层次，不是灰）
-      const t = 236 + v * 0.075;
+      // 其余装甲 → 纯白（下限 240，保留高光层次）
+      const t = 240 + v * 0.06;
       p[i] = Math.min(255, r * 0.25 + t * 0.75);
       p[i + 1] = Math.min(255, g * 0.25 + t * 0.75);
-      p[i + 2] = Math.min(255, b * 0.25 + t * 0.75 + 4); // 微冷调
+      p[i + 2] = Math.min(255, b * 0.25 + t * 0.75 + 3);
     }
   }
 }
