@@ -615,6 +615,11 @@ class RadialMenu {
           /* 已销毁 */
         }
         const app = this.app;
+        if (app) {
+          // 清屏：销毁后立刻渲染一帧空舞台，否则画布会冻结在淡出末尾的
+          // 半透明残影上（取消路径没有后续演出冲刷画布，残影永久留存）
+          app.render();
+        }
         if (!this.view && app && !airstrikeRunningRef()) {
           app.ticker.maxFPS = 0;
           app.ticker.stop();
