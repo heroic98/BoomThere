@@ -2,401 +2,645 @@ import { Application, Container, Graphics, Sprite, Text } from 'pixi.js';
 import gsap from 'gsap';
 import { softTexture } from './particles';
 
-/** 技能注册表条目：轮盘的每一片对应一个特效。 */
+/**
+ * Light Sci-Fi Radial Menu（极简白色科幻轮盘）
+ *
+ * 600 × 600 基准坐标系，整体按屏幕比例缩放。
+ * 分层渲染：阴影 / 底板 / 扇区 / 装饰 / 内容 / 中心按钮。
+ * 静态层只绘制一次；交互状态变化时仅重绘对应扇区。
+ */
+
+// ---- 主题常量（全部颜色集中配置，禁止散落硬编码） ----
+const THEME = {
+  bg: {
+    main: 0xf8f9fa,
+    alt: 0xfafbfc,
+    pure: 0xffffff,
+  },
+  sector: {
+    normal: 0xf7f8fa,
+    normalAlt: 0xf5f6f8,
+    hover: 0xeceff2,
+    pressed: 0xe5e9ed,
+    selected: 0xe5e9ed,
+    disabled: 0xf6f7f8,
+    centerFill: 0xffffff,
+    centerHover: 0xf1f3f5,
+    centerPressed: 0xe8ecef,
+  },
+  border: {
+    wheel: 0xd7dce2,
+    divider: 0xd9dee4,
+    center: 0xc8d0d8,
+    centerHover: 0xaeb8c2,
+    centerPressed: 0x8995a1,
+    sectorHover: 0xaeb8c2,
+    sectorPressed: 0x8995a1,
+    emphasis: 0x798592,
+  },
+  decoration: {
+    ring1: 0xc7ced6,
+    ring2: 0xd9dee4,
+    tick: 0xb8c0c9,
+    auxArc: 0xc9d0d7,
+    pointer: 0x798592,
+  },
+  text: {
+    title: 0x4a535e,
+    titleHover: 0x343b44,
+    titleSelected: 0x303842,
+    desc: 0x939ba5,
+    titleDisabled: 0xabb2ba,
+    descDisabled: 0xc0c6cd,
+    center: 0x3a424c,
+  },
+  icon: {
+    normal: 0x75808c,
+    hover: 0x46515d,
+    disabled: 0xc2c8cf,
+  },
+  shadow: {
+    color: 0x202b3a,
+    alpha: 0.08,
+  },
+};
+
+// ---- 几何参数（600 基准坐标系） ----
+const GEO = {
+  base: 600,
+  cx: 300,
+  cy: 300,
+  wheelOuter: 240, // 轮盘主体外半径
+  sectorOuter: 238, // 扇区外半径
+  sectorInner: 83, // 扇区内半径
+  gapDeg: 1.2, // 扇区角间隙
+  centerBtn: 72, // 中心按钮半径
+  centerHit: 80, // 中心命中区（最外细环）
+  centerRing1: 80,
+  centerRing3: 65,
+  ring1: 249, // 装饰环 1
+  ring2: 258, // 装饰环 2
+  tickInner: 258, // 刻度环内沿
+  auxArc: 270, // 最外辅助圆弧
+  pointerY: -272, // 顶部指示三角
+};
+
+// 四扇区角度定义（度，屏幕 Y 轴向下、顺时针为正；0° 指向右）
+const SECTORS: Array<{ a0: number; a1: number }> = [
+  { a0: -135, a1: -45 }, // 顶
+  { a0: -45, a1: 45 }, // 右
+  { a0: 45, a1: 135 }, // 底
+  { a0: 135, a1: 225 }, // 左
+];
+
+// 扇区内容锚点（图标中心，相对圆心；标题 +41、描述 +64 垂直排布）
+const CONTENT_ANCHORS: Array<{ x: number; y: number }> = [
+  { x: 0, y: -165 }, // 顶：icon(300,135) title(300,176) desc(300,199)
+  { x: 158, y: -36 }, // 右：(458,264)
+  { x: 0, y: 121 }, // 底：(300,421)
+  { x: -158, y: -36 }, // 左：(142,264)
+];
+
+/** 轮盘选项（数据驱动，不与绘制逻辑耦合）。 */
 export interface EffectDef {
   id: string;
-  name: string;
-  icon: string; // 矢量图标种类（burst / orbit / missiles / meteor）
-  color: number; // 主题色（保留字段）
+  title: string;
+  description: string;
+  icon: string; // 线性图标种类（burst / orbit / missiles / meteor）
   enabled: boolean;
   run: (x: number, y: number) => Promise<void>;
 }
 
-const R_OUTER = 150; // 轮盘外半径
-const R_INNER = 46; // 中央取消区半径
-const HOVER_TOL = 44; // 悬停判定外圈容差
+type SectorState = 'normal' | 'hover' | 'pressed' | 'disabled' | 'selected';
 
-// 高达风 Light 主题：白盘 + 高达蓝单主色 + 精密仪表细节
-const T = {
-  accent: 0x2456e6, // 高达蓝（白底 5.9:1，AA）
-  text: 0x27272a, // zinc-800
-  icon: 0x52525b, // zinc-600
-  textDisabled: 0xa1a1aa, // zinc-400
-  iconDisabled: 0xd4d4d8, // zinc-300
-  wedgeNormal: 0x1b1f27, // 楔形 tint 基色（白填充 → 极淡灰阶）
-  border: 0xe4e4e7, // zinc-200
-  tick: 0xc8ccd4, // 刻度灰
-  centerText: 0x71717a, // zinc-500
-  warn: 0xe5484d, // 警示红（高达红点缀）
-};
+const DEG = Math.PI / 180;
+const clamp = (v: number, lo: number, hi: number): number => Math.min(Math.max(v, lo), hi);
 
-const registry: EffectDef[] = [];
-
-export function registerEffect(def: EffectDef): void {
-  registry.push(def);
+/** 环形扇区闭合路径（内圆→外圆→外弧→内圆→反向内弧→闭合）。 */
+function ringSectorPath(g: Graphics, r0: number, r1: number, a0: number, a1: number): void {
+  g.moveTo(Math.cos(a0) * r0, Math.sin(a0) * r0);
+  g.lineTo(Math.cos(a0) * r1, Math.sin(a0) * r1);
+  g.arc(0, 0, r1, a0, a1, false);
+  g.lineTo(Math.cos(a1) * r0, Math.sin(a1) * r0);
+  g.arc(0, 0, r0, a1, a0, true);
+  g.closePath();
 }
 
-let appRef: Application | null = null;
-let root: Container | null = null;
-let sliceGfx: Graphics[] = [];
-let sliceIcons: Graphics[] = [];
-let sliceLabels: Text[] = [];
-let bracketAnchors: Array<{ x: number; y: number }> = [];
-let bracket: Graphics | null = null;
-let centerRing: Graphics | null = null;
-let hovered = -1;
-let hoveredRaw = -1;
-let centerX = 0;
-let centerY = 0;
-let openTl: gsap.core.Timeline | null = null;
-let hudTweens: gsap.core.Tween[] = [];
+/** 极简线性图标（统一 1.6px 描边、30px 视框，颜色随状态重绘）。 */
+function drawIcon(g: Graphics, kind: string, color: number): void {
+  g.clear();
+  const S = { width: 1.6, color, cap: 'round' as const, join: 'round' as const };
+  if (kind === 'burst') {
+    g.circle(0, 0, 4.2).stroke(S);
+    for (let i = 0; i < 8; i++) {
+      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
+      g.moveTo(Math.cos(a) * 7.5, Math.sin(a) * 7.5).lineTo(Math.cos(a) * 13.5, Math.sin(a) * 13.5);
+    }
+    g.stroke(S);
+  } else if (kind === 'orbit') {
+    g.circle(0, 0, 6.5).stroke(S);
+    g.ellipse(0, 0, 14, 5).stroke(S);
+    g.circle(13, -2.5, 1.8).fill({ color });
+  } else if (kind === 'missiles') {
+    for (const [mx, my] of [
+      [-9, -4],
+      [0, 2],
+      [10, -6],
+    ] as Array<[number, number]>) {
+      g.moveTo(mx - 3.2, my + 6).lineTo(mx, my - 5).lineTo(mx + 3.2, my + 6).closePath().stroke(S);
+    }
+  } else if (kind === 'meteor') {
+    g.circle(4, 4, 7).stroke(S);
+    g.moveTo(-11, -11).lineTo(-3, -3);
+    g.moveTo(-13, -3).lineTo(-7, 0);
+    g.moveTo(-3, -13).lineTo(0, -7);
+    g.stroke(S);
+  }
+}
+
+class RadialMenu {
+  private app: Application;
+  private view: Container | null = null; // 600 基准容器（整体缩放）
+  private scale = 1;
+  private centerX = 0;
+  private centerY = 0;
+
+  private items: EffectDef[] = [];
+  private sectorGfx: Graphics[] = [];
+  private icons: Graphics[] = [];
+  private titles: Text[] = [];
+  private descs: Text[] = [];
+  private emphasis: Graphics | null = null; // 悬停/选中强调弧
+  private centerG: Graphics | null = null;
+  private centerC: Container | null = null;
+  private centerText: Text | null = null;
+
+  private hovered = -1;
+  private centerHover = false;
+  private pressedIdx = -1;
+  private closing = false;
+  private tweens: gsap.core.Tween[] = [];
+
+  // 事件回调（组件接口）
+  onOpen: (() => void) | null = null;
+  onClose: (() => void) | null = null;
+  onHover: ((id: string | null) => void) | null = null;
+  onSelect: ((id: string) => void) | null = null;
+  onCancel: (() => void) | null = null;
+
+  constructor(app: Application) {
+    this.app = app;
+  }
+
+  // ---- 组件接口 ----
+  setItems(items: EffectDef[]): void {
+    this.items = items;
+  }
+
+  isOpen(): boolean {
+    return this.view !== null && !this.closing;
+  }
+
+  lastCenter(): { x: number; y: number } {
+    return { x: this.centerX, y: this.centerY };
+  }
+
+  /** 打开轮盘：屏幕坐标定位，按屏幕尺寸整体缩放（不放大超过基准）。 */
+  open(x: number, y: number): void {
+    if (import.meta.env.DEV) {
+      const w = window as unknown as Record<string, any>;
+      (w.__btTrace ??= []).push(`open-entry items=${this.items.length} view=${!!this.view}`);
+    }
+    if (this.view || this.items.length === 0) return;
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    this.scale = clamp(Math.min(W, H) / GEO.base, 0.55, 1.0);
+    const margin = 285 * this.scale;
+    this.centerX = clamp(x, margin, W - margin);
+    this.centerY = clamp(y, margin, H - margin);
+    this.hovered = -1;
+    this.centerHover = false;
+    this.pressedIdx = -1;
+    this.closing = false;
+
+    this.view = new Container();
+    this.view.position.set(this.centerX, this.centerY);
+    this.view.scale.set(this.scale);
+    this.view.alpha = 0;
+    this.app.stage.addChild(this.view);
+    this.app.ticker.start();
+    this.app.ticker.maxFPS = 30; // 静态 UI，30fps 足够
+
+    this.buildShadow();
+    this.buildWheelBase();
+    this.buildSectors();
+    this.buildDecoration();
+    this.buildContent();
+    this.buildCenterButton();
+    if (import.meta.env.DEV) {
+      (window as unknown as Record<string, any>).__btTrace?.push('open-done');
+    }
+
+    // 打开动画：180ms easeOutCubic，0.96 → 1.0
+    this.view.scale.set(this.scale * 0.96);
+    this.tweens.push(
+      gsap.to(this.view, { alpha: 1, duration: 0.18, ease: 'power2.out' }),
+      gsap.to(this.view.scale, { x: this.scale, y: this.scale, duration: 0.18, ease: 'power2.out' }),
+    );
+    this.onOpen?.();
+  }
+
+  /** 指针移动（屏幕坐标）：命中检测 + 状态切换，只重绘变化的部分。 */
+  updatePointer(sx: number, sy: number): void {
+    if (import.meta.env.DEV) {
+      const w = window as unknown as Record<string, any>;
+      (w.__btPointerCalls ??= 0);
+      w.__btPointerCalls++;
+      (w.__btTrace ??= []).push(`up view=${!!this.view} closing=${this.closing}`);
+    }
+    if (!this.view || this.closing) return;
+    const lx = (sx - this.centerX) / this.scale;
+    const ly = (sy - this.centerY) / this.scale;
+    const d = Math.hypot(lx, ly);
+
+    let idx = -1;
+    let center = false;
+    if (d < GEO.centerHit) {
+      center = true;
+    } else if (d >= GEO.sectorInner && d <= GEO.sectorOuter) {
+      const a = Math.atan2(ly, lx) / DEG; // (-180, 180]
+      const half = GEO.gapDeg / 2;
+      for (let i = 0; i < this.items.length && i < SECTORS.length; i++) {
+        const { a0, a1 } = SECTORS[i]; // 定义域跨 ±180°（顶扇区 -135°~-45°）
+        const hit = (v: number): boolean => v > a0 + half && v < a1 - half;
+        // 扇区间隙（±gap/2）不算可点击区域
+        if (hit(a) || hit(a + 360)) {
+          idx = this.items[i].enabled ? i : -2; // -2 = 禁用扇区（无悬停效果）
+          break;
+        }
+      }
+    }
+
+    if (center !== this.centerHover) {
+      this.centerHover = center;
+      this.applyCenterState();
+    }
+    const newHover = idx >= 0 ? idx : -1;
+    if (newHover !== this.hovered) {
+      const prev = this.hovered;
+      this.hovered = newHover;
+      if (prev >= 0) this.applySectorState(prev, this.stateOf(prev));
+      if (newHover >= 0) this.applySectorState(newHover, 'hover');
+      this.updateEmphasis(newHover, 0.85);
+      this.onHover?.(newHover >= 0 ? this.items[newHover].id : null);
+    }
+    if (import.meta.env.DEV) {
+      (window as unknown as Record<string, any>).__btMenuState = {
+        open: this.isOpen(),
+        hoverIdx: this.hovered,
+        centerHover: this.centerHover,
+      };
+    }
+  }
+
+  /**
+   * 左键点选：可用扇区 → 按下反馈 120ms 后选中关闭并返回选项；
+   * 禁用扇区 → 不动作、保持打开；中心/盘外 → 取消关闭。
+   */
+  pick(): { closed: boolean; def?: EffectDef; x: number; y: number } {
+    if (!this.view || this.closing) return { closed: false, x: this.centerX, y: this.centerY };
+    if (this.hovered >= 0) {
+      const i = this.hovered;
+      const item = this.items[i];
+      this.pressedIdx = i;
+      this.applySectorState(i, 'pressed');
+      this.updateEmphasis(i, 1, 2);
+      this.onSelect?.(item.id);
+      // 按下态 120ms 后关闭（选中色），特效由调用方在关闭瞬间发射
+      this.closing = true;
+      window.setTimeout(() => {
+        this.applySectorState(i, 'selected');
+        this.destroyView();
+      }, 120);
+      return { closed: true, def: item, x: this.centerX, y: this.centerY };
+    }
+    if (this.centerHover) this.onCancel?.();
+    this.close();
+    return { closed: true, x: this.centerX, y: this.centerY };
+  }
+
+  /** 取消关闭（右键 / 超时）：140ms easeInCubic。 */
+  close(): void {
+    if (!this.view || this.closing) return;
+    this.closing = true;
+    this.destroyView();
+  }
+
+  destroy(): void {
+    this.close();
+  }
+
+  // ---- 私有实现 ----
+
+  private stateOf(i: number): SectorState {
+    if (!this.items[i].enabled) return 'disabled';
+    if (this.pressedIdx === i) return 'pressed';
+    if (this.hovered === i) return 'hover';
+    return 'normal';
+  }
+
+  private applySectorState(i: number, state: SectorState): void {
+    const g = this.sectorGfx[i];
+    if (!g) return;
+    const { a0, a1 } = SECTORS[i];
+    const fill =
+      state === 'hover' ? THEME.sector.hover
+      : state === 'pressed' || state === 'selected' ? THEME.sector.pressed
+      : state === 'disabled' ? THEME.sector.disabled
+      : THEME.sector.normal;
+    const border =
+      state === 'hover' ? THEME.border.sectorHover
+      : state === 'pressed' ? THEME.border.sectorPressed
+      : state === 'selected' ? THEME.border.emphasis
+      : THEME.border.divider;
+    g.clear();
+    ringSectorPath(g, GEO.sectorInner, GEO.sectorOuter, (a0 + GEO.gapDeg / 2) * DEG, (a1 - GEO.gapDeg / 2) * DEG);
+    g.fill({ color: fill });
+    g.stroke({ width: 1, color: border });
+
+    const iconColor =
+      state === 'hover' || state === 'selected' ? THEME.icon.hover
+      : state === 'disabled' ? THEME.icon.disabled
+      : THEME.icon.normal;
+    // 构建阶段 content 尚未创建（buildContent 在 buildSectors 之后），需守卫
+    if (this.icons[i]) drawIcon(this.icons[i], this.items[i].icon, iconColor);
+    if (this.titles[i]) {
+      this.titles[i].tint =
+        state === 'hover' ? THEME.text.titleHover
+        : state === 'selected' ? THEME.text.titleSelected
+        : state === 'disabled' ? THEME.text.titleDisabled
+        : THEME.text.title;
+    }
+    if (this.descs[i]) {
+      this.descs[i].tint = state === 'disabled' ? THEME.text.descDisabled : THEME.text.desc;
+    }
+  }
+
+  private applyCenterState(): void {
+    if (!this.centerG || !this.centerC || !this.centerText) return;
+    const pressed = false; // 按下瞬间由 pick 流程处理缩放
+    const fill = this.centerHover ? THEME.sector.centerHover : THEME.sector.centerFill;
+    const border = this.centerHover ? THEME.border.centerHover : THEME.border.center;
+    this.centerG.clear();
+    this.centerG.circle(0, 0, GEO.centerBtn).fill({ color: fill });
+    this.centerG.circle(0, 0, GEO.centerBtn).stroke({ width: 1.5, color: border });
+    this.centerText.tint = THEME.text.center;
+    void pressed;
+  }
+
+  /** 悬停/选中强调弧：外环对应扇区位置的浅灰弧线。 */
+  private emphasisTween: gsap.core.Tween | null = null;
+
+  private updateEmphasis(idx: number, alpha: number, width = 1.8): void {
+    if (!this.emphasis) return;
+    this.emphasisTween?.kill();
+    if (idx < 0) {
+      this.emphasis.alpha = 0;
+      return;
+    }
+    const { a0, a1 } = SECTORS[idx];
+    this.emphasis.clear();
+    this.emphasis.arc(0, 0, GEO.ring1, (a0 + 2.5) * DEG, (a1 - 2.5) * DEG);
+    this.emphasis.stroke({ width, color: THEME.border.emphasis, cap: 'round' });
+    this.emphasisTween = gsap.fromTo(this.emphasis, { alpha: 0 }, { alpha, duration: 0.1 });
+  }
+
+  private buildShadow(): void {
+    const v = this.view!;
+    const shadow = new Sprite(softTexture('#202b3a'));
+    shadow.anchor.set(0.5);
+    shadow.scale.set((GEO.wheelOuter * 2.2) / 64);
+    shadow.alpha = THEME.shadow.alpha;
+    shadow.position.set(0, 6); // offsetY 6px 的极轻投影
+    v.addChild(shadow);
+  }
+
+  private buildWheelBase(): void {
+    const v = this.view!;
+    const base = new Graphics();
+    base.circle(0, 0, GEO.wheelOuter).fill({ color: THEME.bg.pure });
+    base.circle(0, 0, GEO.wheelOuter).stroke({ width: 1, color: THEME.border.wheel });
+    v.addChild(base);
+  }
+
+  private buildSectors(): void {
+    const v = this.view!;
+    this.sectorGfx = [];
+    for (let i = 0; i < this.items.length && i < SECTORS.length; i++) {
+      const g = new Graphics();
+      v.addChild(g);
+      this.sectorGfx.push(g);
+      this.applySectorState(i, this.stateOf(i));
+    }
+  }
+
+  private buildDecoration(): void {
+    const v = this.view!;
+    const d = new Container();
+    v.addChild(d);
+
+    // 第一层装饰环 249
+    const r1 = new Graphics();
+    r1.circle(0, 0, GEO.ring1).stroke({ width: 1, color: THEME.decoration.ring1, alpha: 0.75 });
+    d.addChild(r1);
+
+    // 第二层装饰环 258
+    const r2 = new Graphics();
+    r2.circle(0, 0, GEO.ring2).stroke({ width: 0.7, color: THEME.decoration.ring2, alpha: 0.45 });
+    d.addChild(r2);
+
+    // 刻度环：72 格、每 6 格一条主刻度
+    const ticks = new Graphics();
+    for (let i = 0; i < 72; i++) {
+      const a = (i * 5) * DEG;
+      const major = i % 6 === 0;
+      const len = major ? 7 : 3;
+      const r0 = GEO.tickInner;
+      ticks.moveTo(Math.cos(a) * r0, Math.sin(a) * r0).lineTo(Math.cos(a) * (r0 + len), Math.sin(a) * (r0 + len));
+    }
+    ticks.stroke({ width: 1, color: THEME.decoration.tick, alpha: 0.5 });
+    d.addChild(ticks);
+
+    // 极细辅助圆弧（3 段，最外层，透明度极低）
+    const aux = new Graphics();
+    for (const [a0, a1] of [[18, 52], [138, 172], [258, 292]] as Array<[number, number]>) {
+      aux.arc(0, 0, GEO.auxArc, a0 * DEG, a1 * DEG);
+    }
+    aux.stroke({ width: 1.5, color: THEME.decoration.auxArc, alpha: 0.2 });
+    d.addChild(aux);
+
+    // 顶部指示三角（中性灰，无发光）
+    const pointer = new Graphics();
+    pointer
+      .moveTo(0, GEO.pointerY + 8)
+      .lineTo(-5, GEO.pointerY)
+      .lineTo(5, GEO.pointerY)
+      .closePath()
+      .fill({ color: THEME.decoration.pointer });
+    d.addChild(pointer);
+
+    // 强调弧（初始隐藏）
+    this.emphasis = new Graphics();
+    this.emphasis.alpha = 0;
+    d.addChild(this.emphasis);
+  }
+
+  private buildContent(): void {
+    const v = this.view!;
+    const family = '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif';
+    this.icons = [];
+    this.titles = [];
+    this.descs = [];
+    for (let i = 0; i < this.items.length && i < SECTORS.length; i++) {
+      const item = this.items[i];
+      const anchor = CONTENT_ANCHORS[i];
+
+      const icon = new Graphics();
+      drawIcon(icon, item.icon, item.enabled ? THEME.icon.normal : THEME.icon.disabled);
+      icon.position.set(anchor.x, anchor.y);
+      v.addChild(icon);
+      this.icons.push(icon);
+
+      const title = new Text({
+        text: item.title,
+        style: { fontFamily: family, fontSize: 18, fontWeight: '600', fill: 0xffffff },
+      });
+      title.anchor.set(0.5);
+      title.position.set(anchor.x, anchor.y + 41);
+      title.tint = item.enabled ? THEME.text.title : THEME.text.titleDisabled;
+      v.addChild(title);
+      this.titles.push(title);
+
+      const desc = new Text({
+        text: item.description,
+        style: { fontFamily: family, fontSize: 12, fontWeight: '400', fill: 0xffffff },
+      });
+      desc.anchor.set(0.5);
+      desc.position.set(anchor.x, anchor.y + 64);
+      desc.tint = item.enabled ? THEME.text.desc : THEME.text.descDisabled;
+      v.addChild(desc);
+      this.descs.push(desc);
+    }
+  }
+
+  private buildCenterButton(): void {
+    const v = this.view!;
+    this.centerC = new Container();
+    v.addChild(this.centerC);
+
+    // 第一层：最外细环 80
+    const ring1 = new Graphics();
+    ring1.circle(0, 0, GEO.centerRing1).stroke({ width: 1, color: 0xdce1e6 });
+    this.centerC.addChild(ring1);
+
+    // 第二层：按钮主体 72
+    this.centerG = new Graphics();
+    this.centerG.circle(0, 0, GEO.centerBtn).fill({ color: THEME.sector.centerFill });
+    this.centerG.circle(0, 0, GEO.centerBtn).stroke({ width: 1.5, color: THEME.border.center });
+    this.centerC.addChild(this.centerG);
+
+    // 第三层：内部辅助细环 65
+    const ring3 = new Graphics();
+    ring3.circle(0, 0, GEO.centerRing3).stroke({ width: 1, color: 0xebeef1 });
+    this.centerC.addChild(ring3);
+
+    this.centerText = new Text({
+      text: '取消',
+      style: { fontFamily: '"Noto Sans SC", "Microsoft YaHei", sans-serif', fontSize: 24, fontWeight: '600', fill: 0xffffff },
+    });
+    this.centerText.anchor.set(0.5);
+    this.centerText.tint = THEME.text.center;
+    this.centerC.addChild(this.centerText);
+  }
+
+  /** 关闭动画（140ms easeInCubic）后释放全部对象。 */
+  private destroyView(): void {
+    const view = this.view;
+    if (!view) return;
+    if (import.meta.env.DEV) {
+      (window as unknown as Record<string, any>).__btTrace?.push('destroy');
+    }
+    this.view = null;
+    this.hovered = -1;
+    this.centerHover = false;
+    for (const t of this.tweens) t.kill();
+    this.tweens = [];
+    this.emphasisTween?.kill();
+    this.emphasisTween = null;
+    view.children.forEach((c) => gsap.killTweensOf(c));
+    gsap.killTweensOf(view);
+    gsap.killTweensOf(view.scale);
+    gsap.to(view, {
+      alpha: 0,
+      duration: 0.14,
+      ease: 'power2.in',
+      onComplete: () => {
+        try {
+          view.destroy({ children: true, texture: false, textureSource: false });
+        } catch {
+          /* 已销毁 */
+        }
+        const app = this.app;
+        if (!this.view && app && !airstrikeRunningRef()) {
+          app.ticker.maxFPS = 0;
+          app.ticker.stop();
+        }
+      },
+    });
+    gsap.to(view.scale, { x: this.scale * 0.97, y: this.scale * 0.97, duration: 0.14, ease: 'power2.in' });
+    this.onClose?.();
+  }
+}
+
+// ---- 模块级单例与门面（保持 main.ts 现有调用约定） ----
+let menu: RadialMenu | null = null;
+const registered: EffectDef[] = [];
 
 export function bindRadialMenu(app: Application): void {
-  appRef = app;
+  menu = new RadialMenu(app);
+}
+
+export function registerEffect(def: EffectDef): void {
+  registered.push(def);
+  menu?.setItems(registered);
 }
 
 export function isMenuOpen(): boolean {
-  return root !== null;
+  return menu?.isOpen() ?? false;
+}
+
+export function openMenu(x: number, y: number): void {
+  menu?.open(x, y);
+}
+
+export function updateHover(x: number, y: number): void {
+  menu?.updatePointer(x, y);
+}
+
+export function menuPick(): { closed: boolean; def?: EffectDef; x: number; y: number } {
+  return menu ? menu.pick() : { closed: false, x: 0, y: 0 };
+}
+
+export function cancelMenu(): void {
+  menu?.close();
 }
 
 export function lastMenuCenter(): { x: number; y: number } {
-  return { x: centerX, y: centerY };
-}
-
-/** 矢量图标：直接用 Graphics 以 3px 圆头线绘制，换色即重画（风格统一、零贴图依赖）。 */
-function drawIcon(g: Graphics, kind: string, color: number): void {
-  g.clear();
-  const S = { width: 3, color, cap: 'round', join: 'round' } as const;
-  if (kind === 'burst') {
-    for (let i = 0; i < 8; i++) {
-      const a = (i / 8) * Math.PI * 2 + Math.PI / 8;
-      g.moveTo(Math.cos(a) * 7, Math.sin(a) * 7).lineTo(Math.cos(a) * 14, Math.sin(a) * 14);
-    }
-    g.stroke(S);
-    g.circle(0, 0, 3.6).fill({ color });
-  } else if (kind === 'orbit') {
-    g.circle(0, 0, 7).stroke(S);
-    g.ellipse(0, 0, 15, 5.5).stroke(S);
-    g.circle(Math.cos(-0.5) * 15, Math.sin(-0.5) * 5.5, 2.6).fill({ color });
-  } else if (kind === 'missiles') {
-    for (const [mx, my] of [
-      [-10, -4],
-      [1, 2],
-      [11, -6],
-    ] as Array<[number, number]>) {
-      g.moveTo(mx, my + 7).lineTo(mx - 3.6, my - 3).lineTo(mx + 3.6, my - 3).closePath().fill({ color });
-      g.moveTo(mx - 5, my - 8).lineTo(mx - 3, my - 6);
-      g.moveTo(mx + 5, my - 8).lineTo(mx + 3, my - 6);
-      g.stroke({ ...S, width: 2.2 });
-    }
-  } else if (kind === 'meteor') {
-    g.circle(4.5, 4.5, 7.5).stroke(S);
-    g.moveTo(-12, -12).lineTo(-3, -3);
-    g.moveTo(-14, -3).lineTo(-7, 0);
-    g.moveTo(-3, -14).lineTo(0, -7);
-    g.stroke(S);
-  }
-}
-
-/** 悬停瞄准框：四角括号（高达锁定框），点在图标质心上。 */
-function drawBracket(g: Graphics, color: number): void {
-  g.clear();
-  const w = 66;
-  const h = 46;
-  const arm = 12;
-  const x = w / 2;
-  const y = h / 2;
-  g.moveTo(-x + arm, -y).lineTo(-x, -y).lineTo(-x, -y + arm);
-  g.moveTo(x - arm, -y).lineTo(x, -y).lineTo(x, -y + arm);
-  g.moveTo(-x + arm, y).lineTo(-x, y).lineTo(-x, y - arm);
-  g.moveTo(x - arm, y).lineTo(x, y).lineTo(x, y - arm);
-  g.stroke({ width: 2, color, cap: 'round', join: 'round' });
-}
-
-/** 打开轮盘（位置为屏幕本地坐标，自动收进屏幕边界内）。 */
-export function openMenu(x: number, y: number): void {
-  if (!appRef || root || registry.length === 0) return;
-  const W = window.innerWidth;
-  const H = window.innerHeight;
-  centerX = Math.min(Math.max(x, R_OUTER + 12), W - R_OUTER - 12);
-  centerY = Math.min(Math.max(y, R_OUTER + 12), H - R_OUTER - 12);
-  hovered = -1;
-  hoveredRaw = -1;
-
-  root = new Container();
-  root.position.set(centerX, centerY);
-  root.alpha = 0;
-  appRef.stage.addChild(root);
-  appRef.ticker.start();
-  appRef.ticker.maxFPS = 30;
-
-  // 背景投影
-  const shadow = new Sprite(softTexture('#04070d'));
-  shadow.anchor.set(0.5);
-  shadow.scale.set((R_OUTER * 3.0) / 64);
-  shadow.alpha = 0.18;
-  root.addChild(shadow);
-
-  // 白色磨砂主盘 + 细边
-  const disc = new Graphics();
-  disc.circle(0, 0, R_OUTER + 4).fill({ color: 0xffffff, alpha: 0.97 });
-  disc.circle(0, 0, R_OUTER + 4).stroke({ width: 1, color: T.border });
-  root.addChild(disc);
-
-  // 精密仪表外环：双环 + 36 格刻度
-  const bezel = new Graphics();
-  bezel.circle(0, 0, R_OUTER + 4).stroke({ width: 1, color: T.tick, alpha: 0.7 });
-  bezel.circle(0, 0, R_OUTER + 10).stroke({ width: 1, color: T.tick, alpha: 0.45 });
-  for (let i = 0; i < 36; i++) {
-    const a = (i / 36) * Math.PI * 2;
-    const r0 = R_OUTER + 5;
-    const r1 = r0 + (i % 3 === 0 ? 6 : 3);
-    bezel.moveTo(Math.cos(a) * r0, Math.sin(a) * r0).lineTo(Math.cos(a) * r1, Math.sin(a) * r1);
-  }
-  bezel.stroke({ width: 1, color: T.tick, alpha: 0.8 });
-  root.addChild(bezel);
-  // 表盘快门式转正入场
-  gsap.fromTo(bezel, { rotation: -0.7 }, { rotation: 0, duration: 0.55, ease: 'expo.out' });
-
-  // 顶部红色基准标记（高达红点缀）
-  const marker = new Graphics();
-  marker.moveTo(0, -(R_OUTER + 20)).lineTo(-4, -(R_OUTER + 13)).lineTo(4, -(R_OUTER + 13)).closePath().fill({ color: T.warn });
-  root.addChild(marker);
-
-  // 两段高达蓝弧线缓慢旋转（克制的动态）
-  const sweep = new Graphics();
-  for (const [r, a0, a1] of [
-    [R_OUTER + 10, 0, Math.PI * 0.3],
-    [R_OUTER + 10, Math.PI * 1.15, Math.PI * 1.5],
-  ] as Array<[number, number, number]>) {
-    sweep.arc(0, 0, r, a0, a1).stroke({ width: 2, color: T.accent, alpha: 0.65 });
-  }
-  root.addChild(sweep);
-  hudTweens.push(gsap.to(sweep, { rotation: Math.PI * 2, duration: 12, repeat: -1, ease: 'none' }));
-
-  // 连续楔形分片（无空白）：极淡灰阶 + 细棱线，悬停染高达蓝
-  const n = registry.length;
-  const seg = (Math.PI * 2) / n;
-  const start = -Math.PI / 2 - seg / 2; // 第一片正上方居中
-  registry.forEach((def, i) => {
-    const a0 = start + i * seg;
-    const a1 = a0 + seg;
-    const g = new Graphics();
-    g.moveTo(0, 0).arc(0, 0, R_OUTER, a0, a1).closePath().fill({ color: 0xffffff, alpha: 0.12 });
-    g.moveTo(Math.cos(a0) * R_INNER, Math.sin(a0) * R_INNER).lineTo(Math.cos(a0) * R_OUTER, Math.sin(a0) * R_OUTER);
-    g.moveTo(Math.cos(a1) * R_INNER, Math.sin(a1) * R_INNER).lineTo(Math.cos(a1) * R_OUTER, Math.sin(a1) * R_OUTER);
-    g.stroke({ width: 1, color: 0xffffff, alpha: 0.55 });
-    g.tint = T.wedgeNormal;
-    root!.addChild(g);
-    sliceGfx.push(g);
-
-    const mid = a0 + seg / 2;
-    const lr = (R_INNER + R_OUTER) / 2;
-    const icon = new Graphics();
-    drawIcon(icon, def.icon, def.enabled ? T.icon : T.iconDisabled);
-    icon.scale.set(0.92);
-    const label = new Text({
-      text: def.name,
-      style: {
-        fontFamily: '"Segoe UI", "Microsoft YaHei", "PingFang SC", sans-serif',
-        fontSize: 14.5,
-        fontWeight: '600',
-        fill: 0xffffff,
-      },
-    });
-    label.anchor.set(0.5);
-    label.tint = def.enabled ? T.text : T.textDisabled;
-    // 左右分片：图标在上文字在下垂直堆叠；上下分片：沿半径内外排布
-    if (Math.abs(Math.sin(mid)) < 0.5) {
-      icon.position.set(Math.cos(mid) * (lr + 4), Math.sin(mid) * lr - 21);
-      label.position.set(Math.cos(mid) * (lr + 4), Math.sin(mid) * lr + 17);
-    } else {
-      icon.position.set(Math.cos(mid) * (lr + 30), Math.sin(mid) * (lr + 30));
-      label.position.set(Math.cos(mid) * (lr - 20), Math.sin(mid) * (lr - 20));
-    }
-    root!.addChild(icon);
-    root!.addChild(label);
-    sliceIcons.push(icon);
-    sliceLabels.push(label);
-    bracketAnchors.push({ x: icon.x, y: icon.y });
-
-    if (!def.enabled) {
-      const sub = new Text({
-        text: '敬请期待',
-        style: { fontSize: 10, fill: 0xffffff },
-      });
-      sub.anchor.set(0.5);
-      sub.tint = T.textDisabled;
-      sub.position.set(label.x, label.y + 16);
-      root!.addChild(sub);
-    }
-  });
-
-  // 悬停瞄准框（默认隐藏，悬停时弹跳锁定到图标）
-  bracket = new Graphics();
-  drawBracket(bracket, T.accent);
-  bracket.visible = false;
-  root.addChild(bracket);
-
-  // 分片逐片展开入场
-  sliceGfx.forEach((g, i) => {
-    g.alpha = 0;
-    gsap.to(g, { alpha: 1, duration: 0.24, delay: 0.06 + i * 0.045 });
-  });
-  sliceIcons.forEach((t) => {
-    t.alpha = 0;
-    gsap.to(t, { alpha: 1, duration: 0.24, delay: 0.1 });
-  });
-  sliceLabels.forEach((t, i) => {
-    t.alpha = 0;
-    gsap.to(t, { alpha: 1, duration: 0.24, delay: 0.1 + i * 0.04 });
-  });
-
-  // 中央取消区
-  centerRing = new Graphics();
-  centerRing.circle(0, 0, R_INNER).fill({ color: 0xffffff, alpha: 0.98 });
-  centerRing.circle(0, 0, R_INNER).stroke({ width: 1.2, color: 0xffffff, alpha: 0.9 });
-  centerRing.moveTo(-8, 0).lineTo(-4, 0).moveTo(4, 0).lineTo(8, 0);
-  centerRing.moveTo(0, -8).lineTo(0, -4).moveTo(0, 4).lineTo(0, 8);
-  centerRing.stroke({ width: 1.5, color: 0xffffff, alpha: 0.4 });
-  centerRing.tint = 0xc0c0c8;
-  root.addChild(centerRing);
-  const cancel = new Text({
-    text: '取消',
-    style: { fontSize: 13, fill: 0xffffff, letterSpacing: 2 },
-  });
-  cancel.anchor.set(0.5);
-  cancel.tint = T.centerText;
-  root.addChild(cancel);
-
-  // 入场动画
-  root.scale.set(0.72);
-  openTl = gsap.timeline();
-  openTl.to(root, { alpha: 1, duration: 0.13 }, 0);
-  openTl.to(root.scale, { x: 1, y: 1, duration: 0.22, ease: 'back.out(1.7)' }, 0);
-}
-
-/** 光标位置 → 悬停分片（中央取消区/盘外返回 -1，禁用片返回 -2）。 */
-export function updateHover(x: number, y: number): void {
-  if (!root) return;
-  const dx = x - centerX;
-  const dy = y - centerY;
-  const d = Math.hypot(dx, dy);
-  let idx = -1;
-  if (d >= R_INNER + 6 && d <= R_OUTER + HOVER_TOL) {
-    const n = registry.length;
-    const seg = (Math.PI * 2) / n;
-    let a = Math.atan2(dy, dx) - (-Math.PI / 2 - seg / 2);
-    while (a < 0) a += Math.PI * 2;
-    const raw = Math.floor(a / seg) % n;
-    idx = registry[raw].enabled ? raw : -2;
-    hoveredRaw = idx === -2 ? raw : -1;
-  } else {
-    hoveredRaw = -1;
-  }
-  if (idx === hovered) return;
-  hovered = idx;
-  applyHoverState();
-}
-
-function applyHoverState(): void {
-  // 即时高亮：悬停楔形染高达蓝，图标/文字同步，瞄准框弹跳锁定
-  sliceGfx.forEach((g, i) => {
-    g.tint = i === hovered ? T.accent : T.wedgeNormal;
-  });
-  sliceIcons.forEach((t, i) => {
-    drawIcon(t, registry[i].icon, i === hovered ? T.accent : registry[i].enabled ? T.icon : T.iconDisabled);
-    t.scale.set(i === hovered ? 1.02 : 0.92);
-  });
-  sliceLabels.forEach((t, i) => {
-    t.tint = i === hovered ? T.accent : registry[i].enabled ? T.text : T.textDisabled;
-  });
-  if (bracket) {
-    if (hovered >= 0) {
-      const anchor = bracketAnchors[hovered];
-      bracket.position.set(anchor.x, anchor.y);
-      bracket.visible = true;
-      gsap.killTweensOf(bracket.scale);
-      gsap.fromTo(bracket.scale, { x: 0.8, y: 0.8 }, { x: 1, y: 1, duration: 0.14, ease: 'back.out(2.2)' });
-    } else {
-      bracket.visible = false;
-    }
-  }
-  if (centerRing) {
-    centerRing.tint = hovered === -1 ? T.accent : 0xc0c0c8;
-  }
-}
-
-/**
- * 左键点选结算（屏蔽模式下由钩子转发）：
- * 启用片 → 关闭轮盘并返回 { def, x, y }；禁用片 → 抖动警示、轮盘保持；
- * 中央/盘外 → 取消关闭。两种关闭情形都需随后调 Rust `menu_finish`。
- */
-export function menuPick(): { def: EffectDef; x: number; y: number } | null {
-  if (!root) return null;
-  if (hovered === -2 && hoveredRaw >= 0) {
-    // 禁用片：红光警示 + 水平抖动，轮盘保持打开
-    const g = sliceGfx[hoveredRaw];
-    const base = T.wedgeNormal;
-    gsap.killTweensOf(g);
-    gsap.fromTo(g, { x: -4 }, { x: 0, duration: 0.34, ease: 'elastic.out(1.2, 0.35)' });
-    gsap.fromTo(g, { tint: T.warn }, { tint: base, duration: 0.4 });
-    return null;
-  }
-  return closeMenu();
-}
-
-/** 取消并关闭轮盘（右键 / 超时）。 */
-export function cancelMenu(): void {
-  closeMenu();
-}
-
-/** 关闭轮盘；若悬停在可用技能上则返回 { def, x, y }（特效落在轮盘中心）。 */
-function closeMenu(): { def: EffectDef; x: number; y: number } | null {
-  if (!root || !appRef) return null;
-  const selected = hovered >= 0 ? registry[hovered] : null;
-  const closing = root;
-  root = null;
-  hovered = -1;
-  hoveredRaw = -1;
-  sliceGfx = [];
-  sliceIcons = [];
-  sliceLabels = [];
-  bracketAnchors = [];
-  bracket = null;
-  centerRing = null;
-  openTl?.kill();
-  openTl = null;
-  for (const t of hudTweens) t.kill();
-  hudTweens = [];
-  closing.children.forEach((c) => gsap.killTweensOf(c));
-  gsap.killTweensOf(closing);
-  gsap.killTweensOf(closing.scale);
-  gsap.to(closing, {
-    alpha: 0,
-    duration: 0.12,
-    onComplete: () => {
-      try {
-        closing.destroy({ children: true, texture: false, textureSource: false });
-      } catch {
-        /* 已销毁 */
-      }
-      // 没有别的演出在跑就停掉渲染循环
-      const app = appRef;
-      if (!isMenuOpen() && !isAirstrikeRunningRef() && app) {
-        app.ticker.maxFPS = 0; // 恢复无限制（特效使用）
-        app.ticker.stop();
-      }
-    },
-  });
-  if (selected?.enabled) {
-    return { def: selected, x: centerX, y: centerY };
-  }
-  return null;
+  return menu ? menu.lastCenter() : { x: 0, y: 0 };
 }
 
 // 延迟引用，避免与 airstrike 循环依赖
-let isAirstrikeRunningRef = (): boolean => false;
+let airstrikeRunningRef = (): boolean => false;
 export function bindAirstrikeRunningCheck(fn: () => boolean): void {
-  isAirstrikeRunningRef = fn;
+  airstrikeRunningRef = fn;
 }

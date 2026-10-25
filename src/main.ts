@@ -31,15 +31,15 @@ async function toLocal(p: ScreenPoint): Promise<{ x: number; y: number }> {
 function registerSkills(app: Application): void {
   registerEffect({
     id: 'airstrike',
-    name: '给我炸',
+    title: '给我炸',
+    description: '呼叫战机空袭此处',
     icon: 'burst',
-    color: 0xff5a3c,
     enabled: true,
     run: (x, y) => playAirstrike(app, x, y),
   });
-  registerEffect({ id: 'orbital', name: '轨道打击', icon: 'orbit', color: 0x4f8cff, enabled: false, run: async () => {} });
-  registerEffect({ id: 'missiles', name: '导弹雨', icon: 'missiles', color: 0x9a6bff, enabled: false, run: async () => {} });
-  registerEffect({ id: 'meteor', name: '陨石坠落', icon: 'meteor', color: 0xffb054, enabled: false, run: async () => {} });
+  registerEffect({ id: 'orbital', title: '轨道打击', description: '天基动能武器', icon: 'orbit', enabled: false, run: async () => {} });
+  registerEffect({ id: 'missiles', title: '导弹雨', description: '饱和导弹攻击', icon: 'missiles', enabled: false, run: async () => {} });
+  registerEffect({ id: 'meteor', title: '陨石坠落', description: '天外来物轰炸', icon: 'meteor', enabled: false, run: async () => {} });
 }
 
 /** Tauri 覆盖层模式：订阅 Rust 转发来的输入事件。 */
@@ -68,9 +68,9 @@ async function setupTauriMode(app: Application): Promise<void> {
     updateHover((e.payload.screenX - overlayGeo.ox) / overlayGeo.scale, (e.payload.screenY - overlayGeo.oy) / overlayGeo.scale);
   });
   await listen('menu-pick', () => {
-    const sel = menuPick();
-    void invoke('menu_finish');
-    if (sel) void sel.def.run(sel.x, sel.y);
+    const r = menuPick();
+    if (r.closed) void invoke('menu_finish'); // 仅在轮盘真正关闭时解除输入屏蔽
+    if (r.def) void r.def.run(r.x, r.y);
   });
   await listen('menu-cancel', () => cancelMenu());
 
@@ -86,8 +86,8 @@ function setupBrowserTestMode(app: Application): void {
     if (isMenuOpen()) {
       e.preventDefault();
       if (e.button === 0) {
-        const sel = menuPick();
-        if (sel) void sel.def.run(sel.x, sel.y);
+        const r = menuPick();
+        if (r.def) void r.def.run(r.x, r.y);
       } else if (e.button === 2) {
         cancelMenu();
       }

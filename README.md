@@ -13,6 +13,7 @@ Alt  + 右键        →  唤出技能轮盘（常驻），左键点选技能发
 - 轮盘打开期间进入钩子屏蔽模式：所有鼠标输入被拦截（不会误触下层应用），点选由钩子转发判定；15 秒无操作自动取消，退出程序自动解除。
 - 托盘「设置」可改轮盘触发修饰键（Alt/Shift，存于应用数据目录 config.json，立即生效；Ctrl 固定用于「给我炸」）并开关特效音效。
 - 技能注册表化：往 `src/main.ts` 的 `registerSkills` 加一条即可让轮盘多一片，当前「给我炸」可用，另有三个"敬请期待"占位片。
+- 轮盘为 Light Sci-Fi 风格（600×600 基准坐标系整体缩放）：白色底板 + 四环形扇区（1.2° 细间隙）+ 三层中心取消钮 + 外侧双装饰环/72 格刻度/辅助弧/顶部指示三角；主题色全部集中在 `menu.ts` 的 `THEME` 常量；支持 Normal/Hover/Pressed/Disabled/Selected 五态，动画时长按规格（开 180ms / 关 140ms / 悬停 100ms）。
 
 普通右键完全不受影响；特效播放期间鼠标穿透，仍可正常操作下层软件；同一时间只播一场，连点不会叠加。
 
@@ -62,7 +63,7 @@ Win32 鼠标钩子识别 Ctrl+右键 (input.rs)
 ```
 src/
   main.ts                  # 启动、事件订阅、坐标换算、技能注册、浏览器预览模式
-  effects/menu.ts          # 技能注册表 + Pixi 轮盘（按住拖拽选择，松手结算）
+  effects/menu.ts          # Light Sci-Fi 轮盘组件（RadialMenu：数据驱动 + 分层渲染 + 五态）
   effects/airstrike.ts     # playAirstrike(x, y)：GSAP 时间轴与清理
   effects/particles.ts     # 程序化贴图 + 火花/烟雾/尾焰/冲击波粒子系统
   effects/audio.ts         # WebAudio 合成音效（引擎轰鸣 + 爆炸，零素材）
