@@ -1,0 +1,23 @@
+{
+  "name": "boomthere",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc && vite build",
+    "preview": "vite preview",
+    "tauri": "tauri",
+    "icon": "node tools/make-icon.mjs"
+  },
+  "dependencies": {
+    "@tauri-apps/api": "^2.9.0",
+    "gsap": "^3.13.0",
+    "pixi.js": "^8.6.6"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2.9.0",
+    "typescript": "^5.6.3",
+    "vite": "^6.0.0"
+  }
+}
