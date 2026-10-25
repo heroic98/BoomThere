@@ -128,36 +128,95 @@ let jetTex: Texture | null = null;
 let bombTex: Texture | null = null;
 
 /**
- * 战机换色：钢蓝装甲 → 珍珠白（保留明暗层次），青色引擎/座舱发光原样保留。
- * 像素规则：亮青（高饱和 + 高亮度 + 蓝分量高）视为发光部件不动；
- * 其余船体做明度重映射（v' = 140 + v*0.45）并降饱和 55%，变成白银色系。
+ * 战机高达三色涂装：白装甲 / 高达蓝骨架 / 红色部件，青色引擎发光保留。
+ * - 亮青（高饱和+高亮度+蓝分量高）→ 引擎/座舱发光，原样保留
+ * - 机鼻（顶部中央）与两翼尖（自动定位最宽处）→ 高达红
+ * - 中央机身带 + 暗部（v<95）→ 高达蓝（保留明暗层次）
+ * - 其余装甲 → 纯白（明度下限 236，保留高光层次）
  */
-function whitenPixels(data: ImageData): void {
+function gundamPaint(data: ImageData, w: number, h: number): void {
   const p = data.data;
-  for (let i = 0; i < p.length; i += 4) {
-    const a = p[i + 3];
-    if (!a) continue;
-    const r = p[i];
-    const g = p[i + 1];
-    const b = p[i + 2];
-    const max = Math.max(r, g, b);
-    const min = Math.min(r, g, b);
-    const sat = max === 0 ? 0 : (max - min) / max;
-    const isGlow = sat > 0.4 && max > 150 && b >= g; // 亮青发光件
-    if (isGlow) continue;
-    const v2 = 140 + max * 0.45; // 明度重映射到白银区间，保留相对明暗
-    const ratio = max > 0 ? v2 / max : 1;
-    const desat = 0.55;
-    p[i] = Math.min(255, r * ratio * (1 - desat) + v2 * desat);
-    p[i + 1] = Math.min(255, g * ratio * (1 - desat) + v2 * desat);
-    p[i + 2] = Math.min(255, b * ratio * (1 - desat) + v2 * desat);
+  const cx = w / 2;
+  const cy = h / 2;
+
+  // 自动定位翼尖：55%~85% 高度带内最左/最右的不透明像素
+  let tipLx = w;
+  let tipLy = 0;
+  let tipRx = 0;
+  let tipRy = 0;
+  const y0 = Math.floor(h * 0.55);
+  const y1 = Math.floor(h * 0.85);
+  for (let y = y0; y < y1; y++) {
+    for (let x = 0; x < w; x++) {
+      if (p[(y * w + x) * 4 + 3] > 40) {
+        if (x < tipLx) {
+          tipLx = x;
+          tipLy = y;
+        }
+        break;
+      }
+    }
+    for (let x = w - 1; x >= 0; x--) {
+      if (p[(y * w + x) * 4 + 3] > 40) {
+        if (x > tipRx) {
+          tipRx = x;
+          tipRy = y;
+        }
+        break;
+      }
+    }
+  }
+
+  const RED = [226, 62, 62];
+  const BLUE = [48, 92, 198];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      if (!p[i + 3]) continue;
+      const r = p[i];
+      const g = p[i + 1];
+      const b = p[i + 2];
+      const v = Math.max(r, g, b);
+      const min = Math.min(r, g, b);
+      const s = v === 0 ? 0 : (v - min) / v;
+
+      // 红色部件：机鼻 + 双翼尖
+      const inNose = y < h * 0.075 && Math.abs(x - cx) < w * 0.16;
+      const dTip = Math.min(Math.hypot(x - tipLx, y - tipLy), Math.hypot(x - tipRx, y - tipRy));
+      if (inNose || dTip < w * 0.05) {
+        const k = 0.3 + 0.7 * (v / 255);
+        p[i] = RED[0] * k;
+        p[i + 1] = RED[1] * k;
+        p[i + 2] = RED[2] * k;
+        continue;
+      }
+
+      // 青色引擎/座舱发光保留
+      if (s > 0.4 && v > 150 && b >= g) continue;
+
+      // 中央机身带 + 暗部 → 高达蓝
+      const inBand = ((x - cx) / (w * 0.2)) ** 2 + ((y - cy) / (h * 0.24)) ** 2 < 1;
+      if (inBand || v < 95) {
+        const k = 0.35 + 0.65 * (v / 255);
+        p[i] = Math.min(255, BLUE[0] * k + r * 0.12);
+        p[i + 1] = Math.min(255, BLUE[1] * k + g * 0.12);
+        p[i + 2] = Math.min(255, BLUE[2] * k + b * 0.12);
+        continue;
+      }
+
+      // 其余装甲 → 纯白（下限 236，保留高光层次，不是灰）
+      const t = 236 + v * 0.075;
+      p[i] = Math.min(255, r * 0.25 + t * 0.75);
+      p[i + 1] = Math.min(255, g * 0.25 + t * 0.75);
+      p[i + 2] = Math.min(255, b * 0.25 + t * 0.75 + 4); // 微冷调
+    }
   }
 }
 
 /** 启动时预加载机体贴图（drawJet / drawBomb 同步取用）。 */
 export async function preloadAirstrikeAssets(): Promise<void> {
   const [jet, bomb] = await Promise.all([Assets.load(jetAsset), Assets.load(bombAsset)]);
-  // 战机换色：从纹理源画到画布做像素级珍珠白处理
+  // 战机高达三色涂装：从纹理源画到画布做像素级重绘
   const src = jet.source.resource as CanvasImageSource;
   const cv = document.createElement('canvas');
   cv.width = jet.source.width;
@@ -165,7 +224,7 @@ export async function preloadAirstrikeAssets(): Promise<void> {
   const ctx = cv.getContext('2d')!;
   ctx.drawImage(src, 0, 0);
   const data = ctx.getImageData(0, 0, cv.width, cv.height);
-  whitenPixels(data);
+  gundamPaint(data, cv.width, cv.height);
   ctx.putImageData(data, 0, 0);
   jetTex = Texture.from(cv);
   bombTex = bomb;
