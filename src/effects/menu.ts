@@ -3,65 +3,70 @@ import gsap from 'gsap';
 import { softTexture } from './particles';
 
 /**
- * Light Sci-Fi Radial Menu（极简白色科幻轮盘）
+ * POLARIS // 极简浅色能量轮盘
  *
- * 600 × 600 基准坐标系，整体按屏幕比例缩放。
- * 分层渲染：阴影 / 底板 / 扇区 / 装饰 / 内容 / 中心按钮。
- * 静态层只绘制一次；交互状态变化时仅重绘对应扇区。
+ * 白色玻璃装甲 + 青蓝/淡紫能量描边 + 独立旋转仪表环。
+ * 静态装甲只在状态变化时重绘；扫描、粒子和呼吸光由 ticker 驱动。
  */
 
 // ---- 主题常量（全部颜色集中配置，禁止散落硬编码） ----
 const THEME = {
   bg: {
-    main: 0xf8f9fa,
-    alt: 0xfafbfc,
+    main: 0xf6f9fc,
+    alt: 0xeaf0f6,
     pure: 0xffffff,
   },
   sector: {
-    normal: 0xf7f8fa,
-    normalAlt: 0xf5f6f8,
-    hover: 0xeceff2,
-    pressed: 0xe5e9ed,
-    selected: 0xe5e9ed,
-    disabled: 0xf6f7f8,
+    normal: 0xffffff,
+    normalAlt: 0xf4f8fb,
+    hover: 0xeef9fc,
+    pressed: 0xdff4fa,
+    selected: 0xe2f4ff,
+    disabled: 0xf0f3f6,
     centerFill: 0xffffff,
-    centerHover: 0xf1f3f5,
-    centerPressed: 0xe8ecef,
+    centerHover: 0xfff4f6,
+    centerPressed: 0xffe7ec,
   },
   border: {
-    wheel: 0xd7dce2,
-    divider: 0xd9dee4,
-    center: 0xc8d0d8,
-    centerHover: 0xaeb8c2,
-    centerPressed: 0x8995a1,
-    sectorHover: 0xaeb8c2,
-    sectorPressed: 0x8995a1,
-    emphasis: 0x798592,
+    wheel: 0xc7d4e1,
+    divider: 0xdbe4ec,
+    center: 0xe5b4c0,
+    centerHover: 0xf06a81,
+    centerPressed: 0xd94862,
+    sectorHover: 0x41b8dd,
+    sectorPressed: 0x168fb9,
+    emphasis: 0x2bb3dd,
   },
   decoration: {
-    ring1: 0xc7ced6,
-    ring2: 0xd9dee4,
-    tick: 0xb8c0c9,
-    auxArc: 0xc9d0d7,
-    pointer: 0x798592,
+    ring1: 0x78cfe3,
+    ring2: 0xb7c7d5,
+    tick: 0x94aabb,
+    auxArc: 0xa29aee,
+    pointer: 0x31a9c9,
   },
   text: {
-    title: 0x4a535e,
-    titleHover: 0x343b44,
-    titleSelected: 0x303842,
-    desc: 0x939ba5,
-    titleDisabled: 0xabb2ba,
-    descDisabled: 0xc0c6cd,
-    center: 0x3a424c,
+    title: 0x2c3d52,
+    titleHover: 0x14283d,
+    titleSelected: 0x14283d,
+    desc: 0x76889b,
+    titleDisabled: 0xaeb9c5,
+    descDisabled: 0xc0c8d0,
+    center: 0xd84d64,
   },
   icon: {
-    normal: 0x75808c,
-    hover: 0x46515d,
-    disabled: 0xc2c8cf,
+    normal: 0x3ba7c7,
+    hover: 0x147ea8,
+    disabled: 0xa8b5c1,
   },
   shadow: {
-    color: 0x202b3a,
-    alpha: 0.08,
+    color: 0x34516b,
+    alpha: 0.18,
+  },
+  energy: {
+    cyan: 0x35b8e4,
+    violet: 0x9187ed,
+    mint: 0x3cc8ae,
+    danger: 0xf05b74,
   },
 };
 
@@ -73,7 +78,7 @@ const GEO = {
   wheelOuter: 240, // 轮盘主体外半径
   sectorOuter: 238, // 扇区外半径
   sectorInner: 83, // 扇区内半径
-  gapDeg: 1.2, // 扇区角间隙
+  gapDeg: 3.2, // 悬浮装甲之间的能量隔断
   centerBtn: 72, // 中心按钮半径
   centerHit: 80, // 中心命中区（最外细环）
   centerRing1: 80,
@@ -129,7 +134,7 @@ function ringSectorPath(g: Graphics, r0: number, r1: number, a0: number, a1: num
 /** 极简线性图标（统一 1.6px 描边、30px 视框，颜色随状态重绘）。 */
 function drawIcon(g: Graphics, kind: string, color: number): void {
   g.clear();
-  const S = { width: 1.6, color, cap: 'round' as const, join: 'round' as const };
+  const S = { width: 2, color, cap: 'round' as const, join: 'round' as const };
   if (kind === 'burst') {
     g.circle(0, 0, 4.2).stroke(S);
     for (let i = 0; i < 8; i++) {
@@ -174,6 +179,12 @@ class RadialMenu {
   private centerG: Graphics | null = null;
   private centerC: Container | null = null;
   private centerText: Text | null = null;
+  private centerAura: Graphics | null = null;
+  private spinner: Container | null = null;
+  private reverseRing: Container | null = null;
+  private scanner: Graphics | null = null;
+  private orbiters: Array<{ g: Graphics; r: number; a: number; speed: number }> = [];
+  private dust: Array<{ g: Graphics; r: number; a: number; speed: number; phase: number }> = [];
 
   private hovered = -1;
   private centerHover = false;
@@ -233,6 +244,12 @@ class RadialMenu {
     this.centerG = null;
     this.centerC = null;
     this.centerText = null;
+    this.centerAura = null;
+    this.spinner = null;
+    this.reverseRing = null;
+    this.scanner = null;
+    this.orbiters = [];
+    this.dust = [];
 
     this.view = new Container();
     this.view.position.set(this.centerX, this.centerY);
@@ -240,7 +257,8 @@ class RadialMenu {
     this.view.alpha = 0;
     this.app.stage.addChild(this.view);
     this.app.ticker.start();
-    this.app.ticker.maxFPS = 30; // 静态 UI，30fps 足够
+    this.app.ticker.maxFPS = 60; // 扫描环与粒子需要更顺滑的运动
+    this.app.ticker.add(this.tick);
 
     this.buildShadow();
     this.buildWheelBase();
@@ -252,12 +270,17 @@ class RadialMenu {
       (window as unknown as Record<string, any>).__btTrace?.push('open-done');
     }
 
-    // 打开动画：180ms easeOutCubic，0.96 → 1.0
-    this.view.scale.set(this.scale * 0.96);
+    // 能量展开：轮盘弹入，仪表环反向解锁，内容逐层点亮。
+    this.view.scale.set(this.scale * 0.82);
+    this.view.rotation = -0.055;
     this.tweens.push(
-      gsap.to(this.view, { alpha: 1, duration: 0.18, ease: 'power2.out' }),
-      gsap.to(this.view.scale, { x: this.scale, y: this.scale, duration: 0.18, ease: 'power2.out' }),
+      gsap.to(this.view, { alpha: 1, rotation: 0, duration: 0.3, ease: 'power3.out' }),
+      gsap.to(this.view.scale, { x: this.scale, y: this.scale, duration: 0.38, ease: 'back.out(1.45)' }),
     );
+    if (this.spinner) this.tweens.push(gsap.from(this.spinner, { rotation: -0.8, duration: 0.55, ease: 'power3.out' }));
+    if (this.reverseRing) this.tweens.push(gsap.from(this.reverseRing, { rotation: 0.65, duration: 0.55, ease: 'power3.out' }));
+    const content = [...this.icons, ...this.titles, ...this.descs];
+    this.tweens.push(gsap.from(content, { alpha: 0, duration: 0.24, stagger: 0.025, delay: 0.08, ease: 'power2.out' }));
     this.onOpen?.();
   }
 
@@ -311,8 +334,16 @@ class RadialMenu {
     if (newHover !== this.hovered) {
       const prev = this.hovered;
       this.hovered = newHover;
-      if (prev >= 0) this.applySectorState(prev, this.stateOf(prev));
-      if (newHover >= 0) this.applySectorState(newHover, 'hover');
+      if (prev >= 0) {
+        this.applySectorState(prev, this.stateOf(prev));
+        this.tweens.push(gsap.to(this.titles[prev], { y: CONTENT_ANCHORS[prev].y + 41, duration: 0.16, ease: 'power2.out' }));
+        this.tweens.push(gsap.to(this.icons[prev].scale, { x: 1.2, y: 1.2, duration: 0.18, ease: 'power2.out' }));
+      }
+      if (newHover >= 0) {
+        this.applySectorState(newHover, 'hover');
+        this.tweens.push(gsap.to(this.titles[newHover], { y: CONTENT_ANCHORS[newHover].y + 37, duration: 0.18, ease: 'back.out(2)' }));
+        this.tweens.push(gsap.fromTo(this.icons[newHover].scale, { x: 0.92, y: 0.92 }, { x: 1.36, y: 1.36, duration: 0.24, ease: 'back.out(2.2)' }));
+      }
       this.updateEmphasis(newHover, 0.85);
       this.onHover?.(newHover >= 0 ? this.items[newHover].id : null);
     }
@@ -364,6 +395,34 @@ class RadialMenu {
 
   // ---- 私有实现 ----
 
+  /** 常驻全息运动：慢速仪表、雷达扫描、轨道光点与呼吸能量。 */
+  private tick = (): void => {
+    if (!this.view || this.closing) return;
+    const dt = Math.min(this.app.ticker.deltaMS, 50) / 1000;
+    const t = performance.now() / 1000;
+    if (this.spinner) this.spinner.rotation += dt * 0.085;
+    if (this.reverseRing) this.reverseRing.rotation -= dt * 0.12;
+    if (this.scanner) {
+      this.scanner.rotation += dt * 0.34;
+      this.scanner.alpha = 0.58 + Math.sin(t * 1.8) * 0.12;
+    }
+    for (const o of this.orbiters) {
+      o.a += dt * o.speed;
+      o.g.position.set(Math.cos(o.a) * o.r, Math.sin(o.a) * o.r);
+      o.g.rotation = o.a + Math.PI / 2;
+    }
+    for (const p of this.dust) {
+      p.a += dt * p.speed;
+      p.g.position.set(Math.cos(p.a) * p.r, Math.sin(p.a) * p.r);
+      p.g.alpha = 0.12 + (Math.sin(t * 1.7 + p.phase) + 1) * 0.17;
+    }
+    if (this.centerAura) {
+      const pulse = 1 + Math.sin(t * 2.4) * 0.035;
+      this.centerAura.scale.set(pulse);
+      this.centerAura.alpha = 0.48 + Math.sin(t * 2.4) * 0.12;
+    }
+  };
+
   private stateOf(i: number): SectorState {
     if (!this.items[i].enabled) return 'disabled';
     if (this.pressedIdx === i) return 'pressed';
@@ -375,37 +434,61 @@ class RadialMenu {
     const g = this.sectorGfx[i];
     if (!g) return;
     const { a0, a1 } = SECTORS[i];
-    const fill =
-      state === 'hover' ? THEME.sector.hover
-      : state === 'pressed' || state === 'selected' ? THEME.sector.pressed
-      : state === 'disabled' ? THEME.sector.disabled
-      : THEME.sector.normal;
-    const border =
-      state === 'hover' ? THEME.border.sectorHover
+    const active = state === 'hover' || state === 'pressed' || state === 'selected';
+    const disabled = state === 'disabled';
+    const accent = i % 2 === 0 ? THEME.energy.cyan : THEME.energy.violet;
+    const fill = state === 'hover' ? THEME.sector.hover
+      : active ? THEME.sector.pressed
+      : disabled ? THEME.sector.disabled
+      : i % 2 === 0 ? THEME.sector.normal : THEME.sector.normalAlt;
+    const border = state === 'hover' ? THEME.border.sectorHover
       : state === 'pressed' ? THEME.border.sectorPressed
       : state === 'selected' ? THEME.border.emphasis
       : THEME.border.divider;
+    const start = (a0 + GEO.gapDeg / 2) * DEG;
+    const end = (a1 - GEO.gapDeg / 2) * DEG;
     g.clear();
-    ringSectorPath(g, GEO.sectorInner, GEO.sectorOuter, (a0 + GEO.gapDeg / 2) * DEG, (a1 - GEO.gapDeg / 2) * DEG);
-    g.fill({ color: fill });
-    g.stroke({ width: 1, color: border });
 
-    const iconColor =
-      state === 'hover' || state === 'selected' ? THEME.icon.hover
-      : state === 'disabled' ? THEME.icon.disabled
-      : THEME.icon.normal;
+    // 悬浮装甲的多层边缘：暗影厚度、玻璃主体、内侧高光。
+    ringSectorPath(g, GEO.sectorInner + 3, GEO.sectorOuter + 3, start, end);
+    g.fill({ color: THEME.bg.alt, alpha: 0.96 });
+    ringSectorPath(g, GEO.sectorInner, GEO.sectorOuter, start, end);
+    g.fill({ color: fill, alpha: disabled ? 0.8 : 0.97 });
+    g.stroke({ width: active ? 1.7 : 1, color: border, alpha: disabled ? 0.45 : 0.95 });
+    g.arc(0, 0, GEO.sectorInner + 7, start + 0.035, end - 0.035);
+    g.stroke({ width: 1, color: active ? accent : THEME.border.wheel, alpha: active ? 0.65 : 0.34 });
+
+    // 扇区外沿能量轨：常态微亮，悬停时形成有宽度的青/紫辉光。
+    if (active) {
+      g.arc(0, 0, GEO.sectorOuter - 2, start + 0.035, end - 0.035);
+      g.stroke({ width: 12, color: accent, alpha: 0.1, cap: 'round' });
+      g.arc(0, 0, GEO.sectorOuter - 2, start + 0.035, end - 0.035);
+      g.stroke({ width: 4, color: accent, alpha: 0.25, cap: 'round' });
+    }
+    g.arc(0, 0, GEO.sectorOuter - 2, start + 0.035, end - 0.035);
+    g.stroke({ width: active ? 1.8 : 1.1, color: disabled ? THEME.border.divider : accent, alpha: disabled ? 0.25 : active ? 1 : 0.5, cap: 'round' });
+
+    // 装甲接缝与端部刻度，避免大面积单调色块。
+    for (const a of [start, end]) {
+      g.moveTo(Math.cos(a) * (GEO.sectorInner + 16), Math.sin(a) * (GEO.sectorInner + 16));
+      g.lineTo(Math.cos(a) * (GEO.sectorOuter - 18), Math.sin(a) * (GEO.sectorOuter - 18));
+    }
+    g.stroke({ width: 1, color: border, alpha: 0.35 });
+    const mid = (start + end) / 2;
+    for (const offset of [-0.055, 0, 0.055]) {
+      const a = mid + offset;
+      g.moveTo(Math.cos(a) * (GEO.sectorOuter - 12), Math.sin(a) * (GEO.sectorOuter - 12));
+      g.lineTo(Math.cos(a) * (GEO.sectorOuter - (offset === 0 ? 23 : 18)), Math.sin(a) * (GEO.sectorOuter - (offset === 0 ? 23 : 18)));
+    }
+    g.stroke({ width: 2, color: disabled ? border : accent, alpha: disabled ? 0.25 : 0.72 });
+
+    const iconColor = active ? THEME.icon.hover : disabled ? THEME.icon.disabled : THEME.icon.normal;
     // 构建阶段 content 尚未创建（buildContent 在 buildSectors 之后），需守卫
     if (this.icons[i]) drawIcon(this.icons[i], this.items[i].icon, iconColor);
     if (this.titles[i]) {
-      this.titles[i].tint =
-        state === 'hover' ? THEME.text.titleHover
-        : state === 'selected' ? THEME.text.titleSelected
-        : state === 'disabled' ? THEME.text.titleDisabled
-        : THEME.text.title;
+      this.titles[i].tint = active ? THEME.text.titleHover : disabled ? THEME.text.titleDisabled : THEME.text.title;
     }
-    if (this.descs[i]) {
-      this.descs[i].tint = state === 'disabled' ? THEME.text.descDisabled : THEME.text.desc;
-    }
+    if (this.descs[i]) this.descs[i].tint = disabled ? THEME.text.descDisabled : active ? THEME.icon.normal : THEME.text.desc;
   }
 
   private applyCenterState(): void {
@@ -414,9 +497,18 @@ class RadialMenu {
     const fill = this.centerHover ? THEME.sector.centerHover : THEME.sector.centerFill;
     const border = this.centerHover ? THEME.border.centerHover : THEME.border.center;
     this.centerG.clear();
-    this.centerG.circle(0, 0, GEO.centerBtn).fill({ color: fill });
-    this.centerG.circle(0, 0, GEO.centerBtn).stroke({ width: 1.5, color: border });
-    this.centerText.tint = THEME.text.center;
+    this.centerG.circle(0, 0, GEO.centerBtn).fill({ color: fill, alpha: 0.98 });
+    this.centerG.circle(0, 0, GEO.centerBtn).stroke({ width: this.centerHover ? 2 : 1.2, color: border, alpha: 0.9 });
+    this.centerG.circle(0, 0, 54).stroke({ width: 1, color: border, alpha: 0.28 });
+    for (let i = 0; i < 4; i++) {
+      const a = i * Math.PI / 2 + Math.PI / 4;
+      this.centerG.moveTo(Math.cos(a) * 59, Math.sin(a) * 59).lineTo(Math.cos(a) * 66, Math.sin(a) * 66);
+    }
+    this.centerG.stroke({ width: 2, color: border, alpha: 0.75 });
+    this.centerG.moveTo(-10, -15).lineTo(10, 5);
+    this.centerG.moveTo(10, -15).lineTo(-10, 5);
+    this.centerG.stroke({ width: 2.2, color: this.centerHover ? THEME.energy.danger : THEME.text.center, cap: 'round' });
+    this.centerText.tint = this.centerHover ? THEME.border.centerHover : THEME.text.center;
     void pressed;
   }
 
@@ -433,25 +525,37 @@ class RadialMenu {
     const { a0, a1 } = SECTORS[idx];
     this.emphasis.clear();
     this.emphasis.arc(0, 0, GEO.ring1, (a0 + 2.5) * DEG, (a1 - 2.5) * DEG);
+    this.emphasis.stroke({ width: width + 8, color: THEME.energy.cyan, alpha: 0.1, cap: 'round' });
+    this.emphasis.arc(0, 0, GEO.ring1, (a0 + 2.5) * DEG, (a1 - 2.5) * DEG);
     this.emphasis.stroke({ width, color: THEME.border.emphasis, cap: 'round' });
     this.emphasisTween = gsap.fromTo(this.emphasis, { alpha: 0 }, { alpha, duration: 0.1 });
   }
 
   private buildShadow(): void {
     const v = this.view!;
-    const shadow = new Sprite(softTexture('#202b3a'));
+    const shadow = new Sprite(softTexture('#34516b'));
     shadow.anchor.set(0.5);
-    shadow.scale.set((GEO.wheelOuter * 2.2) / 64);
+    shadow.scale.set((GEO.wheelOuter * 2.6) / 64);
     shadow.alpha = THEME.shadow.alpha;
-    shadow.position.set(0, 6); // offsetY 6px 的极轻投影
+    shadow.position.set(0, 12);
     v.addChild(shadow);
+    const glow = new Sprite(softTexture('#8bdcf2'));
+    glow.anchor.set(0.5);
+    glow.scale.set((GEO.wheelOuter * 2.5) / 64);
+    glow.alpha = 0.09;
+    glow.blendMode = 'add';
+    v.addChild(glow);
   }
 
   private buildWheelBase(): void {
     const v = this.view!;
     const base = new Graphics();
-    base.circle(0, 0, GEO.wheelOuter).fill({ color: THEME.bg.pure });
-    base.circle(0, 0, GEO.wheelOuter).stroke({ width: 1, color: THEME.border.wheel });
+    base.circle(0, 0, GEO.wheelOuter + 4).fill({ color: THEME.bg.pure, alpha: 0.9 });
+    base.circle(0, 0, GEO.wheelOuter + 4).stroke({ width: 1, color: THEME.border.wheel, alpha: 0.7 });
+    base.circle(0, 0, GEO.wheelOuter - 6).stroke({ width: 1, color: THEME.decoration.ring2, alpha: 0.28 });
+    // 中央暗色玻璃衬底，让四个独立扇区仍有整体感。
+    base.circle(0, 0, 112).fill({ color: THEME.bg.main, alpha: 0.88 });
+    base.circle(0, 0, 112).stroke({ width: 1, color: THEME.border.divider, alpha: 0.45 });
     v.addChild(base);
   }
 
@@ -471,47 +575,80 @@ class RadialMenu {
     const d = new Container();
     v.addChild(d);
 
-    // 第一层装饰环 249
+    // 雷达扫光藏在仪表环下方，以极低透明度增加空间层次。
+    this.scanner = new Graphics();
+    this.scanner.moveTo(0, 0).arc(0, 0, 284, -0.12, 0.12).closePath().fill({ color: THEME.energy.cyan, alpha: 0.055 });
+    this.scanner.moveTo(0, 0).lineTo(284, 0).stroke({ width: 1, color: THEME.energy.cyan, alpha: 0.18 });
+    this.scanner.blendMode = 'add';
+    d.addChild(this.scanner);
+
     const r1 = new Graphics();
-    r1.circle(0, 0, GEO.ring1).stroke({ width: 1, color: THEME.decoration.ring1, alpha: 0.75 });
+    r1.circle(0, 0, GEO.ring1).stroke({ width: 1, color: THEME.decoration.ring1, alpha: 0.52 });
+    r1.circle(0, 0, GEO.ring2).stroke({ width: 0.7, color: THEME.decoration.ring2, alpha: 0.55 });
     d.addChild(r1);
 
-    // 第二层装饰环 258
-    const r2 = new Graphics();
-    r2.circle(0, 0, GEO.ring2).stroke({ width: 0.7, color: THEME.decoration.ring2, alpha: 0.45 });
-    d.addChild(r2);
+    // 正转的能量断环。
+    this.spinner = new Container();
+    const spin = new Graphics();
+    for (const [a0, a1, color] of [
+      [-78, -18, THEME.energy.cyan], [12, 62, THEME.energy.violet],
+      [102, 152, THEME.energy.cyan], [192, 242, THEME.energy.violet],
+    ] as Array<[number, number, number]>) {
+      spin.arc(0, 0, GEO.ring2, a0 * DEG, a1 * DEG);
+      spin.stroke({ width: 2.2, color, alpha: 0.8, cap: 'round' });
+      spin.arc(0, 0, GEO.ring2 + 5, (a0 + 5) * DEG, (a0 + 17) * DEG);
+      spin.stroke({ width: 1, color, alpha: 0.42, cap: 'round' });
+    }
+    this.spinner.addChild(spin);
+    d.addChild(this.spinner);
 
-    // 刻度环：72 格、每 6 格一条主刻度
+    // 反转的精密刻度环。
+    this.reverseRing = new Container();
     const ticks = new Graphics();
-    for (let i = 0; i < 72; i++) {
-      const a = (i * 5) * DEG;
-      const major = i % 6 === 0;
-      const len = major ? 7 : 3;
-      const r0 = GEO.tickInner;
-      ticks.moveTo(Math.cos(a) * r0, Math.sin(a) * r0).lineTo(Math.cos(a) * (r0 + len), Math.sin(a) * (r0 + len));
+    for (let i = 0; i < 96; i++) {
+      const a = i * 3.75 * DEG;
+      const major = i % 8 === 0;
+      const r0 = major ? 265 : 267;
+      const r1Tick = major ? 274 : 271;
+      ticks.moveTo(Math.cos(a) * r0, Math.sin(a) * r0).lineTo(Math.cos(a) * r1Tick, Math.sin(a) * r1Tick);
     }
     ticks.stroke({ width: 1, color: THEME.decoration.tick, alpha: 0.5 });
-    d.addChild(ticks);
-
-    // 极细辅助圆弧（3 段，最外层，透明度极低）
-    const aux = new Graphics();
     for (const [a0, a1] of [[18, 52], [138, 172], [258, 292]] as Array<[number, number]>) {
-      aux.arc(0, 0, GEO.auxArc, a0 * DEG, a1 * DEG);
+      ticks.arc(0, 0, GEO.auxArc + 7, a0 * DEG, a1 * DEG);
     }
-    aux.stroke({ width: 1.5, color: THEME.decoration.auxArc, alpha: 0.2 });
-    d.addChild(aux);
+    ticks.stroke({ width: 1.5, color: THEME.decoration.auxArc, alpha: 0.5 });
+    this.reverseRing.addChild(ticks);
+    d.addChild(this.reverseRing);
 
-    // 顶部指示三角（中性灰，无发光）
+    // 轨道光点与短尾迹，像环绕轮盘运行的能量子。
+    for (let i = 0; i < 4; i++) {
+      const g = new Graphics();
+      const color = i % 2 ? THEME.energy.violet : THEME.energy.cyan;
+      g.moveTo(0, 0).lineTo(0, 17).stroke({ width: 2, color, alpha: 0.2, cap: 'round' });
+      g.moveTo(0, 0).lineTo(0, 8).stroke({ width: 1.4, color, alpha: 0.8, cap: 'round' });
+      g.circle(0, 0, 2.4).fill({ color });
+      g.blendMode = 'add';
+      d.addChild(g);
+      this.orbiters.push({ g, r: i % 2 ? 260 : 278, a: i * Math.PI / 2, speed: (i % 2 ? -1 : 1) * (0.18 + i * 0.025) });
+    }
+
+    // 稀疏星尘保持静态半径，仅缓慢公转与闪烁，不干扰文字阅读。
+    for (let i = 0; i < 24; i++) {
+      const g = new Graphics();
+      const color = i % 3 === 0 ? THEME.energy.violet : THEME.energy.cyan;
+      g.circle(0, 0, i % 5 === 0 ? 1.5 : 0.85).fill({ color });
+      d.addChild(g);
+      const a = i * 2.39996;
+      this.dust.push({ g, r: 248 + (i % 5) * 10, a, speed: i % 2 ? 0.025 : -0.018, phase: i * 0.73 });
+    }
+
     const pointer = new Graphics();
-    pointer
-      .moveTo(0, GEO.pointerY + 8)
-      .lineTo(-5, GEO.pointerY)
-      .lineTo(5, GEO.pointerY)
-      .closePath()
-      .fill({ color: THEME.decoration.pointer });
+    pointer.moveTo(0, GEO.pointerY + 10).lineTo(-6, GEO.pointerY).lineTo(6, GEO.pointerY).closePath().fill({ color: THEME.decoration.pointer });
+    pointer.moveTo(-12, GEO.pointerY + 4).lineTo(-18, GEO.pointerY + 4);
+    pointer.moveTo(12, GEO.pointerY + 4).lineTo(18, GEO.pointerY + 4);
+    pointer.stroke({ width: 1, color: THEME.energy.cyan, alpha: 0.65 });
     d.addChild(pointer);
 
-    // 强调弧（初始隐藏）
     this.emphasis = new Graphics();
     this.emphasis.alpha = 0;
     d.addChild(this.emphasis);
@@ -526,16 +663,37 @@ class RadialMenu {
     for (let i = 0; i < this.items.length && i < SECTORS.length; i++) {
       const item = this.items[i];
       const anchor = CONTENT_ANCHORS[i];
+      const accent = i % 2 === 0 ? THEME.energy.cyan : THEME.energy.violet;
+
+      const halo = new Graphics();
+      halo.circle(anchor.x, anchor.y, 25).fill({ color: accent, alpha: item.enabled ? 0.055 : 0.025 });
+      halo.circle(anchor.x, anchor.y, 25).stroke({ width: 1, color: item.enabled ? accent : THEME.border.divider, alpha: item.enabled ? 0.28 : 0.2 });
+      halo.arc(anchor.x, anchor.y, 30, -2.7, -1.95).stroke({ width: 1.5, color: accent, alpha: item.enabled ? 0.55 : 0.12 });
+      halo.arc(anchor.x, anchor.y, 30, 0.45, 1.2).stroke({ width: 1.5, color: accent, alpha: item.enabled ? 0.55 : 0.12 });
+      halo.moveTo(anchor.x - 20, anchor.y + 88).lineTo(anchor.x + 20, anchor.y + 88).stroke({ width: 1, color: accent, alpha: item.enabled ? 0.32 : 0.12 });
+      halo.circle(anchor.x, anchor.y + 88, 1.5).fill({ color: accent, alpha: item.enabled ? 0.7 : 0.15 });
+      v.addChild(halo);
+
+      const code = new Text({
+        text: `0${i + 1}  //  ${item.enabled ? 'READY' : 'LOCKED'}`,
+        style: { fontFamily: 'Consolas, monospace', fontSize: 8, fontWeight: '400', letterSpacing: 1.5, fill: 0xffffff },
+      });
+      code.anchor.set(0.5);
+      code.position.set(anchor.x, anchor.y - 36);
+      code.tint = item.enabled ? accent : THEME.text.titleDisabled;
+      code.alpha = item.enabled ? 0.7 : 0.45;
+      v.addChild(code);
 
       const icon = new Graphics();
       drawIcon(icon, item.icon, item.enabled ? THEME.icon.normal : THEME.icon.disabled);
       icon.position.set(anchor.x, anchor.y);
+      icon.scale.set(1.2);
       v.addChild(icon);
       this.icons.push(icon);
 
       const title = new Text({
         text: item.title,
-        style: { fontFamily: family, fontSize: 18, fontWeight: '600', fill: 0xffffff },
+        style: { fontFamily: family, fontSize: 19, fontWeight: '600', letterSpacing: 2, fill: 0xffffff },
       });
       title.anchor.set(0.5);
       title.position.set(anchor.x, anchor.y + 41);
@@ -544,8 +702,8 @@ class RadialMenu {
       this.titles.push(title);
 
       const desc = new Text({
-        text: item.description,
-        style: { fontFamily: family, fontSize: 12, fontWeight: '400', fill: 0xffffff },
+        text: item.enabled ? item.description : '尚未解锁',
+        style: { fontFamily: family, fontSize: 10, fontWeight: '400', letterSpacing: 1, fill: 0xffffff },
       });
       desc.anchor.set(0.5);
       desc.position.set(anchor.x, anchor.y + 64);
@@ -560,29 +718,35 @@ class RadialMenu {
     this.centerC = new Container();
     v.addChild(this.centerC);
 
-    // 第一层：最外细环 80
-    const ring1 = new Graphics();
-    ring1.circle(0, 0, GEO.centerRing1).stroke({ width: 1, color: 0xdce1e6 });
-    this.centerC.addChild(ring1);
+    this.centerAura = new Graphics();
+    this.centerAura.circle(0, 0, 83).fill({ color: THEME.energy.danger, alpha: 0.025 });
+    this.centerAura.circle(0, 0, GEO.centerRing1).stroke({ width: 5, color: THEME.energy.danger, alpha: 0.06 });
+    this.centerAura.circle(0, 0, GEO.centerRing1).stroke({ width: 1, color: THEME.border.center, alpha: 0.8 });
+    this.centerC.addChild(this.centerAura);
 
-    // 第二层：按钮主体 72
+    const broken = new Graphics();
+    for (const [a0, a1] of [[-80, -18], [10, 72], [100, 162], [190, 252]] as Array<[number, number]>) {
+      broken.arc(0, 0, GEO.centerRing1, a0 * DEG, a1 * DEG);
+    }
+    broken.stroke({ width: 2, color: THEME.energy.danger, alpha: 0.42, cap: 'round' });
+    this.centerC.addChild(broken);
+
     this.centerG = new Graphics();
-    this.centerG.circle(0, 0, GEO.centerBtn).fill({ color: THEME.sector.centerFill });
-    this.centerG.circle(0, 0, GEO.centerBtn).stroke({ width: 1.5, color: THEME.border.center });
     this.centerC.addChild(this.centerG);
 
-    // 第三层：内部辅助细环 65
     const ring3 = new Graphics();
-    ring3.circle(0, 0, GEO.centerRing3).stroke({ width: 1, color: 0xebeef1 });
+    ring3.circle(0, 0, GEO.centerRing3).stroke({ width: 1, color: THEME.border.center, alpha: 0.22 });
     this.centerC.addChild(ring3);
 
     this.centerText = new Text({
-      text: '取消',
-      style: { fontFamily: '"Noto Sans SC", "Microsoft YaHei", sans-serif', fontSize: 24, fontWeight: '600', fill: 0xffffff },
+      text: '取 消',
+      style: { fontFamily: '"Noto Sans SC", "Microsoft YaHei", sans-serif', fontSize: 10, fontWeight: '500', letterSpacing: 2, fill: 0xffffff },
     });
     this.centerText.anchor.set(0.5);
+    this.centerText.position.set(0, 24);
     this.centerText.tint = THEME.text.center;
     this.centerC.addChild(this.centerText);
+    this.applyCenterState();
   }
 
   /** 关闭动画（140ms easeInCubic）后释放全部对象。 */
@@ -593,6 +757,7 @@ class RadialMenu {
       (window as unknown as Record<string, any>).__btTrace?.push('destroy');
     }
     this.view = null;
+    this.app.ticker.remove(this.tick);
     // 淡出期间保持"忙碌"：看门狗继续驱动渲染，画布才不会冻结在残影上
     this.animatingUntil = performance.now() + 400;
     this.hovered = -1;
@@ -626,7 +791,8 @@ class RadialMenu {
         }
       },
     });
-    gsap.to(view.scale, { x: this.scale * 0.97, y: this.scale * 0.97, duration: 0.14, ease: 'power2.in' });
+    gsap.to(view.scale, { x: this.scale * 0.9, y: this.scale * 0.9, duration: 0.14, ease: 'power2.in' });
+    gsap.to(view, { rotation: 0.035, duration: 0.14, ease: 'power2.in' });
     this.onClose?.();
   }
 }
