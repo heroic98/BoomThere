@@ -153,7 +153,7 @@ function prewarmRenderer(app: Application): void {
 
 async function boot(): Promise<void> {
   const app = await initPixi();
-  await preloadAirstrikeAssets(); // 机体贴图预加载（战机/炸弹 CC0 素材）
+  await preloadAirstrikeAssets(); // 预烘焙矢量机甲战机并预加载炸弹素材
   bindParticles(app);
   bindRadialMenu(app);
   bindAirstrikeRunningCheck(isAirstrikeRunning);

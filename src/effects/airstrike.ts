@@ -3,8 +3,6 @@ import gsap from 'gsap';
 import { MotionPathPlugin } from 'gsap/MotionPathPlugin';
 import { softTexture, ringTexture, flameTexture, smokePuffTexture, streakTexture, spawn, destroyAllParticles, requestFinishWhenDrained } from './particles';
 import { initAudio, sfxJet, sfxBoom, stopAllAudio } from './audio';
-// CC0 素材：Unlucky Studio Spaceship Pack（opengameart.org/content/complete-spaceship-game-art-pack）
-import jetAsset from '../assets/jet.png';
 import bombAsset from '../assets/bomb.png';
 
 gsap.registerPlugin(MotionPathPlugin);
@@ -29,8 +27,8 @@ const SMOKE_TINTS = [0x9aa0a8, 0x6f747c, 0x4e5257];
 const EMBER_TINTS = [0xffcf7d, 0xff9a3c, 0xff7a2f];
 const PLASMA_TINTS = [0x9ff2ff, 0xd8f6ff, 0xffe2b0];
 
-const JET_ART_SCALE = 0.23; // 素材 640px → 世界约 147px
-const JET_LEN = 74; // 机头到机身原点的世界距离（激光原点用）
+const JET_ART_SCALE = 0.26; // 640px 矢量机甲 → 世界约 166px
+const JET_LEN = 78; // 机头到机身原点的世界距离（激光原点用）
 const BOMB_ART_SCALE = 0.19; // 素材 256px → 世界约 49px
 
 const rand = (a: number, b: number): number => a + Math.random() * (b - a);
@@ -123,124 +121,195 @@ function runEffect(app: Application, tx: number, ty: number): Promise<void> {
   });
 }
 
-// ---- 机体贴图：CC0 素材（Unlucky Studio Spaceship Pack，俯视透明底）预加载 ----
+// ---- 机体贴图：程序化矢量装甲，640px 高清画布一次烘焙 ----
 let jetTex: Texture | null = null;
 let bombTex: Texture | null = null;
 
 /**
- * 战机高达三色涂装 v2（离线迭代定稿的规则，通道序 RGBA）：
- * - 烘焙软阴影（半透明暗块）→ 原样保留
- * - 机鼻锥（292,26,350,140）+ 双翼尖（自动定位区）→ 高达红
- * - 中央脊线带（x 258-342, y 140-470）→ 高达蓝
- * - 引擎涡轮圈（(152,398)/(452,398) r65）→ 青色原样保留
- * - 青色发光（引擎/喷口/座舱）→ 原样保留
- * - 其余装甲 → 纯白（明度下限 240，保留高光层次）
+ * RX 风格重型机甲战机：机首 V 鳍、肩部厚甲、分段翼面与双涡轮推进器。
+ * 全部在 640px 画布上绘制并烘焙，避免旧贴图的塑料感和低分辨率锯齿。
  */
-function gundamPaint(data: ImageData, w: number, h: number): void {
-  const p = data.data;
-  const cx = w / 2;
-  const cy = h / 2;
+function createMechaTexture(): Texture {
+  const cv = document.createElement('canvas');
+  cv.width = 640;
+  cv.height = 640;
+  const ctx = cv.getContext('2d')!;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
 
-  // 自动定位翼尖：55%~85% 高度带内最左/最右的不透明像素
-  let tipLx = w;
-  let tipLy = 0;
-  let tipRx = 0;
-  let tipRy = 0;
-  const y0 = Math.floor(h * 0.52);
-  const y1 = Math.floor(h * 0.71);
-  for (let y = y0; y < y1; y++) {
-    for (let x = 0; x < w; x++) {
-      if (p[(y * w + x) * 4 + 3] > 40) {
-        if (x < tipLx) {
-          tipLx = x;
-          tipLy = y;
-        }
-        break;
-      }
+  const poly = (points: number[], fill: string | CanvasGradient, stroke = '#172239', width = 5): void => {
+    ctx.beginPath();
+    ctx.moveTo(points[0], points[1]);
+    for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
+    ctx.closePath();
+    ctx.fillStyle = fill;
+    ctx.fill();
+    if (width) {
+      ctx.strokeStyle = stroke;
+      ctx.lineWidth = width;
+      ctx.stroke();
     }
-    for (let x = w - 1; x >= 0; x--) {
-      if (p[(y * w + x) * 4 + 3] > 40) {
-        if (x > tipRx) {
-          tipRx = x;
-          tipRy = y;
-        }
-        break;
-      }
+  };
+  const seam = (points: number[], color = '#66758b', width = 3): void => {
+    ctx.beginPath();
+    ctx.moveTo(points[0], points[1]);
+    for (let i = 2; i < points.length; i += 2) ctx.lineTo(points[i], points[i + 1]);
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.stroke();
+  };
+  const white = ctx.createLinearGradient(80, 80, 540, 560);
+  white.addColorStop(0, '#ffffff');
+  white.addColorStop(0.45, '#e9eef5');
+  white.addColorStop(1, '#aebbd0');
+  const whiteReverse = ctx.createLinearGradient(560, 80, 100, 560);
+  whiteReverse.addColorStop(0, '#ffffff');
+  whiteReverse.addColorStop(0.45, '#e9eef5');
+  whiteReverse.addColorStop(1, '#aebbd0');
+  const blue = ctx.createLinearGradient(0, 130, 0, 520);
+  blue.addColorStop(0, '#315ca8');
+  blue.addColorStop(1, '#14294f');
+  const red = ctx.createLinearGradient(0, 40, 0, 500);
+  red.addColorStop(0, '#ff6258');
+  red.addColorStop(0.45, '#d9323c');
+  red.addColorStop(1, '#851f30');
+  const glass = ctx.createLinearGradient(290, 135, 350, 250);
+  glass.addColorStop(0, '#d9fbff');
+  glass.addColorStop(0.28, '#58d9f1');
+  glass.addColorStop(0.65, '#167b9f');
+  glass.addColorStop(1, '#092c4b');
+
+  // 一体式深色机械骨架：先确定有别于普通三角飞船的宽厚机甲轮廓。
+  poly([320,16,348,64,352,112,388,150,404,220,476,274,586,392,584,468,490,458,456,510,408,506,390,566,346,566,320,538,294,566,250,566,232,506,184,510,150,458,56,468,54,392,164,274,236,220,252,150,288,112,292,64], '#111a2c', '#080d18', 9);
+
+  // 后掠主翼：白色外甲 + 深蓝机械夹层，翼根保留厚重体积。
+  poly([248,214,176,268,70,390,74,435,169,424,219,365,276,329,278,249], white, '#1a2940', 6);
+  poly([392,214,464,268,570,390,566,435,471,424,421,365,364,329,362,249], whiteReverse, '#1a2940', 6);
+  poly([174,287,91,387,102,402,164,387,220,329,241,272], blue, '#31445f', 4);
+  poly([466,287,549,387,538,402,476,387,420,329,399,272], blue, '#31445f', 4);
+  poly([75,392,54,392,56,468,116,449,133,420], red, '#561c2b', 5);
+  poly([565,392,586,392,584,468,524,449,507,420], red, '#561c2b', 5);
+  poly([117,448,169,424,199,435,180,485,139,500,112,477], white, '#1a2940', 5);
+  poly([523,448,471,424,441,435,460,485,501,500,528,477], whiteReverse, '#1a2940', 5);
+  seam([112,414,166,403,207,350,252,314]);
+  seam([528,414,474,403,433,350,388,314]);
+  seam([153,452,176,455,164,480]);
+  seam([487,452,464,455,476,480]);
+  seam([193,294,209,310,179,348], '#8a98aa', 2);
+  seam([447,294,431,310,461,348], '#8a98aa', 2);
+
+  // 肩部复合装甲：切面、灰色内侧与红色散热口营造拼装层次。
+  poly([248,153,292,127,302,248,272,329,224,306,207,253], white, '#1a2940', 6);
+  poly([392,153,348,127,338,248,368,329,416,306,433,253], whiteReverse, '#1a2940', 6);
+  poly([238,207,273,181,282,250,258,296,228,280], '#c4cede', '#65748b', 3);
+  poly([402,207,367,181,358,250,382,296,412,280], '#c4cede', '#65748b', 3);
+  poly([222,263,251,283,243,310,218,292], red, '#762435', 3);
+  poly([418,263,389,283,397,310,422,292], red, '#762435', 3);
+  seam([258,161,270,178], '#ffffff', 4);
+  seam([382,161,370,178], '#ffffff', 4);
+
+  // 中央蓝色胸甲与白色驾驶舱框架。
+  poly([294,112,346,112,369,202,356,321,386,389,364,477,320,512,276,477,254,389,284,321,271,202], blue, '#101a2e', 7);
+  poly([286,132,311,117,309,250,286,290,272,221], white, '#26364e', 4);
+  poly([354,132,329,117,331,250,354,290,368,221], whiteReverse, '#26364e', 4);
+  poly([294,137,320,122,346,137,349,199,334,239,306,239,291,199], glass, '#0b253e', 5);
+  poly([304,143,320,134,336,143,331,158,309,158], '#e9fdff', 'transparent', 0);
+  seam([301,209,320,225,339,209], '#73ddef', 3);
+  poly([284,279,309,256,309,348,278,372,265,334], white, '#26364e', 4);
+  poly([356,279,331,256,331,348,362,372,375,334], whiteReverse, '#26364e', 4);
+  poly([286,305,302,292,302,312,283,326], red, '#8e2937', 2);
+  poly([354,305,338,292,338,312,357,326], red, '#8e2937', 2);
+  seam([283,343,301,331], '#738298', 3);
+  seam([357,343,339,331], '#738298', 3);
+
+  // 标志性机首：红色传感冠、白色面甲、金色双 V 鳍。
+  poly([320,18,342,68,339,111,320,135,301,111,298,68], white, '#16243a', 5);
+  poly([320,20,334,69,320,91,306,69], red, '#812536', 3);
+  poly([291,83,305,119,320,133,314,103,307,79], '#ffd84b', '#8b6420', 3);
+  poly([349,83,335,119,320,133,326,103,333,79], '#ffd84b', '#8b6420', 3);
+  poly([307,94,320,103,333,94,330,117,320,128,310,117], '#f4f7fb', '#26364e', 3);
+  seam([313,108,320,114,327,108], '#36d9f3', 4);
+
+  // 腰部、尾部稳定翼与双发动机舱。
+  poly([275,370,309,351,309,461,286,486,261,453], white, '#1a2940', 5);
+  poly([365,370,331,351,331,461,354,486,379,453], whiteReverse, '#1a2940', 5);
+  poly([305,362,335,362,344,461,320,505,296,461], '#263c65', '#101a2e', 5);
+  poly([309,389,331,389,333,432,320,447,307,432], red, '#701f32', 3);
+  poly([266,434,242,503,250,552,282,525,295,473], red, '#561c2b', 5);
+  poly([374,434,398,503,390,552,358,525,345,473], red, '#561c2b', 5);
+  poly([195,350,257,337,276,381,264,486,226,506,183,466], white, '#172239', 6);
+  poly([445,350,383,337,364,381,376,486,414,506,457,466], whiteReverse, '#172239', 6);
+  poly([205,374,248,363,259,389,250,419,206,426,192,403], blue, '#31445f', 4);
+  poly([435,374,392,363,381,389,390,419,434,426,448,403], blue, '#31445f', 4);
+  seam([196,444,226,451,254,439]);
+  seam([444,444,414,451,386,439]);
+
+  // 涡轮：发光环 + 八片金属叶片，双引擎在近距离掠过时仍有清晰细节。
+  for (const ex of [222, 418]) {
+    ctx.save();
+    ctx.shadowColor = '#5deaff';
+    ctx.shadowBlur = 24;
+    ctx.beginPath();
+    ctx.arc(ex, 453, 35, 0, Math.PI * 2);
+    ctx.fillStyle = '#38dff5';
+    ctx.fill();
+    ctx.restore();
+    ctx.beginPath();
+    ctx.arc(ex, 453, 32, 0, Math.PI * 2);
+    ctx.fillStyle = '#10263e';
+    ctx.fill();
+    ctx.lineWidth = 5;
+    ctx.strokeStyle = '#a5f7ff';
+    ctx.stroke();
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4;
+      const a2 = a + 0.32;
+      poly([
+        ex + Math.cos(a) * 9, 453 + Math.sin(a) * 9,
+        ex + Math.cos(a) * 27, 453 + Math.sin(a) * 27,
+        ex + Math.cos(a2) * 27, 453 + Math.sin(a2) * 27,
+        ex + Math.cos(a2) * 12, 453 + Math.sin(a2) * 12,
+      ], '#70d9e9', '#173c55', 1);
     }
+    ctx.beginPath();
+    ctx.arc(ex, 453, 9, 0, Math.PI * 2);
+    ctx.fillStyle = '#efffff';
+    ctx.fill();
+    poly([ex - 29,482,ex + 29,482,ex + 21,510,ex - 21,510], '#14233a', '#080f1d', 4);
+    seam([ex - 15,490,ex + 15,490], '#8b9aaf', 3);
   }
 
-  const inRect = (x: number, y: number, x0: number, y0: number, x1: number, y1: number): boolean =>
-    x >= x0 && x <= x1 && y >= y0 && y <= y1;
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      if (!p[i + 3]) continue;
-      const r = p[i];
-      const g = p[i + 1];
-      const b = p[i + 2];
-      const v = Math.max(r, g, b);
-      const min = Math.min(r, g, b);
-      const s = v === 0 ? 0 : (v - min) / v;
-
-      // 烘焙软阴影 → 原样保留
-      if (p[i + 3] < 200 && v < 90) continue;
-
-      // 区域定义（640 素材空间）
-      const inNose = inRect(x, y, 292, 26, 350, 140);
-      const inSpine = x >= cx - 42 && x <= cx + 42 && y >= 140 && y <= 470;
-      const wingLtip = inRect(x, y, tipLx, tipLy - 10, tipLx + 90, tipLy + 115);
-      const wingRtip = inRect(x, y, tipRx - 88, tipRy - 10, tipRx, tipRy + 115);
-      const dTurL = (x - 152) ** 2 + (y - 398) ** 2;
-      const dTurR = (x - 452) ** 2 + (y - 398) ** 2;
-      const inTurbine = dTurL < 4225 || dTurR < 4225;
-
-      // 红色部件（机鼻 + 翼尖）— 先于青色规则
-      if (inNose || (wingLtip && !inTurbine) || (wingRtip && !inTurbine)) {
-        const k = 0.5 + 0.5 * (v / 255);
-        p[i] = Math.min(255, 52 * k);
-        p[i + 1] = Math.min(255, 48 * k);
-        p[i + 2] = Math.min(255, 226 * k);
-        continue;
-      }
-
-      // 青色引擎/喷口/座舱发光保留
-      if (s > 0.4 && v > 150 && b >= g) continue;
-      if (inTurbine && s > 0.15) continue;
-
-      // 中央脊线带 → 高达蓝
-      if (inSpine) {
-        const k = 0.5 + 0.5 * (v / 255);
-        p[i] = Math.min(255, 60 * k);
-        p[i + 1] = Math.min(255, 102 * k);
-        p[i + 2] = Math.min(255, 198 * k);
-        continue;
-      }
-
-      // 其余装甲 → 纯白（下限 240，保留高光层次）
-      const t = 240 + v * 0.06;
-      p[i] = Math.min(255, r * 0.25 + t * 0.75);
-      p[i + 1] = Math.min(255, g * 0.25 + t * 0.75);
-      p[i + 2] = Math.min(255, b * 0.25 + t * 0.75 + 3);
-    }
+  // 小比例军规标识与铆钉：增加真实机甲的涂装信息密度。
+  ctx.fillStyle = '#24344d';
+  ctx.font = '700 20px Arial, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.save();
+  ctx.translate(143, 374);
+  ctx.rotate(-0.72);
+  ctx.fillText('RX-78', 0, 0);
+  ctx.restore();
+  ctx.save();
+  ctx.translate(497, 374);
+  ctx.rotate(0.72);
+  ctx.font = '700 15px Arial, sans-serif';
+  ctx.fillText('E.F.S.F.', 0, 0);
+  ctx.restore();
+  ctx.fillStyle = '#e9b928';
+  for (const [x, y] of [[259,342],[381,342],[278,397],[362,397],[162,414],[478,414]]) {
+    ctx.beginPath();
+    ctx.arc(x, y, 3, 0, Math.PI * 2);
+    ctx.fill();
   }
+  poly([89,415,103,409,99,425], '#ffd84b', 'transparent', 0);
+  poly([551,415,537,409,541,425], '#ffd84b', 'transparent', 0);
+
+  return Texture.from(cv);
 }
 
 /** 启动时预加载机体贴图（drawJet / drawBomb 同步取用）。 */
 export async function preloadAirstrikeAssets(): Promise<void> {
-  const [jet, bomb] = await Promise.all([Assets.load(jetAsset), Assets.load(bombAsset)]);
-  // 战机高达三色涂装：从纹理源画到画布做像素级重绘
-  const src = jet.source.resource as CanvasImageSource;
-  const cv = document.createElement('canvas');
-  cv.width = jet.source.width;
-  cv.height = jet.source.height;
-  const ctx = cv.getContext('2d')!;
-  ctx.drawImage(src, 0, 0);
-  const data = ctx.getImageData(0, 0, cv.width, cv.height);
-  gundamPaint(data, cv.width, cv.height);
-  ctx.putImageData(data, 0, 0);
-  jetTex = Texture.from(cv);
-  bombTex = bomb;
+  bombTex = await Assets.load(bombAsset);
+  jetTex = createMechaTexture();
 }
 
 /**
@@ -258,11 +327,11 @@ function drawJet(): { node: Container; exhausts: Sprite[]; navLight: Sprite } {
     node.addChild(art);
   }
 
-  // 双引擎青色加力焰（素材尾部双喷口 → 世界偏移约 (-55, ±23)）
+  // 双引擎青色加力焰（对准矢量机体尾部双喷口）
   const exhausts: Sprite[] = [];
   for (const [ex, ey, es, col] of [
-    [-55, -23, 1.25, '#7fe7ff'],
-    [-55, 23, 1.25, '#7fe7ff'],
+    [-49, -25.5, 1.15, '#7fe7ff'],
+    [-49, 25.5, 1.15, '#7fe7ff'],
   ] as Array<[number, number, number, string]>) {
     const s = new Sprite(softTexture(col));
     s.anchor.set(0.5);
@@ -277,7 +346,7 @@ function drawJet(): { node: Container; exhausts: Sprite[]; navLight: Sprite } {
   // 尾焰拉长锥（等离子拖尾）：头部贴喷口，向后渐隐
   const cone = new Sprite(streakTexture());
   cone.anchor.set(1, 0.5);
-  cone.position.set(-60, 0);
+  cone.position.set(-54, 0);
   cone.scale.set(1.05, 0.85);
   cone.blendMode = 'add';
   cone.alpha = 0.7;
@@ -288,7 +357,7 @@ function drawJet(): { node: Container; exhausts: Sprite[]; navLight: Sprite } {
   // 尾部核心灯（青白，闪烁）
   const navLight = new Sprite(softTexture('#bff4ff'));
   navLight.anchor.set(0.5);
-  navLight.position.set(-52, 0);
+  navLight.position.set(-48, 0);
   navLight.scale.set(0.5);
   navLight.blendMode = 'add';
   node.addChild(navLight);

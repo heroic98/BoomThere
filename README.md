@@ -78,7 +78,7 @@ tools/make-icon.mjs       # 程序化生成 icon.ico（零素材）
 
 ## 素材策略
 
-第一版零外部素材：战机、炸弹用 PixiJS Graphics 手绘；粒子/冲击波贴图用 Canvas 径向渐变程序生成；音效由 WebAudio 噪声合成。后续可替换 `assets/` 下的战机 PNG、爆炸 Sprite Sheet、烟雾纹理与 OGG 音效。
+战机使用 640px Canvas 程序化矢量绘制并一次性烘焙为纹理：RX 风格机首 V 鳍、白蓝红三色分层装甲、金色细节、面板刻线、军规标识与双涡轮引擎；炸弹沿用 CC0 素材，粒子/冲击波贴图由 Canvas 径向渐变程序生成，音效由 WebAudio 噪声合成。后续可继续替换 `assets/` 下的爆炸 Sprite Sheet、烟雾纹理与 OGG 音效。
 
 ## 验收对照
 
