@@ -3,7 +3,7 @@ import type { Application } from 'pixi.js';
 import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { initPixi, installRenderWatchdog } from './engine/pixi';
 import { bindParticles, prewarmEffectTextures } from './effects/particles';
-import { playAirstrike, isAirstrikeRunning } from './effects/airstrike';
+import { playAirstrike, isAirstrikeRunning, preloadAirstrikeAssets } from './effects/airstrike';
 import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, menuHoverInfo, isMenuAnimating, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
 import { initAudio } from './effects/audio';
 
@@ -153,6 +153,7 @@ function prewarmRenderer(app: Application): void {
 
 async function boot(): Promise<void> {
   const app = await initPixi();
+  await preloadAirstrikeAssets(); // 机体贴图预加载（战机/炸弹 CC0 素材）
   bindParticles(app);
   bindRadialMenu(app);
   bindAirstrikeRunningCheck(isAirstrikeRunning);
