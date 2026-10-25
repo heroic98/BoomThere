@@ -4,7 +4,7 @@ import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { initPixi, installRenderWatchdog } from './engine/pixi';
 import { bindParticles, prewarmEffectTextures } from './effects/particles';
 import { playAirstrike, isAirstrikeRunning } from './effects/airstrike';
-import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, menuHoverInfo, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
+import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, menuHoverInfo, isMenuAnimating, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
 import { initAudio } from './effects/audio';
 
 interface ScreenPoint {
@@ -46,17 +46,6 @@ function registerSkills(app: Application): void {
 async function setupTauriMode(app: Application): Promise<void> {
   const { listen } = await import('@tauri-apps/api/event');
   const { invoke } = await import('@tauri-apps/api/core');
-
-  // 修饰键+右键：直接触发技能
-  await listen<ScreenPoint>('airstrike-trigger', async (e) => {
-    void invoke('log_line', { line: 'got airstrike-trigger' });
-    try {
-      const l = await toLocal(e.payload);
-      void playAirstrike(app, l.x, l.y);
-    } catch (err) {
-      console.error('[boomthere] trigger handling failed', err);
-    }
-  });
 
   // 轮盘：唤出后常驻（屏蔽模式），左键点选结算，右键/超时取消。
   // 移动事件 30Hz 且几何已缓存，处理路径内无任何 IPC，保证跟手。
@@ -169,7 +158,7 @@ async function boot(): Promise<void> {
   bindAirstrikeRunningCheck(isAirstrikeRunning);
   registerSkills(app);
   prewarmRenderer(app);
-  installRenderWatchdog(app, () => isAirstrikeRunning() || isMenuOpen());
+  installRenderWatchdog(app, () => isAirstrikeRunning() || isMenuOpen() || isMenuAnimating());
 
   if ('__TAURI_INTERNALS__' in window) {
     await setupTauriMode(app);

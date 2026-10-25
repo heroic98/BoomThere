@@ -179,6 +179,7 @@ class RadialMenu {
   private centerHover = false;
   private pressedIdx = -1;
   private closing = false;
+  private animatingUntil = 0;
   private tweens: gsap.core.Tween[] = [];
 
   // 事件回调（组件接口）
@@ -214,7 +215,7 @@ class RadialMenu {
     if (this.view || this.items.length === 0) return;
     const W = window.innerWidth;
     const H = window.innerHeight;
-    this.scale = clamp(Math.min(W, H) / GEO.base, 0.55, 1.0);
+    this.scale = clamp(Math.min(W, H) / GEO.base, 0.36, 0.667);
     const margin = 285 * this.scale;
     this.centerX = clamp(x, margin, W - margin);
     this.centerY = clamp(y, margin, H - margin);
@@ -263,6 +264,12 @@ class RadialMenu {
   /** 诊断快照（生产也可用）：当前悬停状态。 */
   hoverInfo(): { hovered: number; centerHover: boolean; open: boolean } {
     return { hovered: this.hovered, centerHover: this.centerHover, open: this.isOpen() };
+  }
+
+  /** 关闭淡出是否仍在进行（渲染看门狗需在此期间持续驱动，
+   *  否则无焦点覆盖层的 rAF 会被系统节流，画布冻结在半透明残影上）。 */
+  isAnimating(): boolean {
+    return performance.now() < this.animatingUntil;
   }
 
   /** 指针移动（屏幕坐标）：命中检测 + 状态切换，只重绘变化的部分。 */
@@ -586,6 +593,8 @@ class RadialMenu {
       (window as unknown as Record<string, any>).__btTrace?.push('destroy');
     }
     this.view = null;
+    // 淡出期间保持"忙碌"：看门狗继续驱动渲染，画布才不会冻结在残影上
+    this.animatingUntil = performance.now() + 400;
     this.hovered = -1;
     this.centerHover = false;
     for (const t of this.tweens) t.kill();
@@ -649,6 +658,11 @@ export function menuPick(): { closed: boolean; def?: EffectDef; x: number; y: nu
 /** 诊断：轮盘当前悬停状态（生产可用，供日志排查）。 */
 export function menuHoverInfo(): { hovered: number; centerHover: boolean; open: boolean } {
   return menu ? menu.hoverInfo() : { hovered: -1, centerHover: false, open: false };
+}
+
+/** 关闭淡出仍在进行（渲染看门狗用）。 */
+export function isMenuAnimating(): boolean {
+  return menu ? menu.isAnimating() : false;
 }
 
 export function cancelMenu(): void {

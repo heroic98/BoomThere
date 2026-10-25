@@ -29,7 +29,6 @@ pub const VK_ALT: u8 = 0x12;
 pub const VK_SHIFT: u8 = 0x10;
 
 /// 事件种类 → 前端事件名
-const EV_STRIKE: u8 = 1;
 const EV_MENU_OPEN: u8 = 2;
 const EV_MENU_MOVE: u8 = 3;
 const EV_MENU_CLOSE: u8 = 4;
@@ -39,16 +38,13 @@ const EV_MENU_CANCEL: u8 = 6;
 /// 轮盘打开后的安全超时：前端失联也不会锁死输入
 const MENU_TIMEOUT_MS: u64 = 15_000;
 
-/// 「给我炸」固定使用 Ctrl + 右键（不开放配置）
-const STRIKE_VK: u8 = VK_CTRL;
-
 fn event_name(kind: u8) -> &'static str {
     match kind {
         EV_MENU_OPEN => "menu-open",
         EV_MENU_MOVE => "menu-move",
         EV_MENU_CANCEL => "menu-cancel",
         EV_MENU_PICK => "menu-pick",
-        _ => "airstrike-trigger",
+        _ => "menu-cancel",
     }
 }
 
@@ -202,13 +198,6 @@ unsafe extern "system" fn mouse_proc(code: i32, wparam: WPARAM, lparam: LPARAM) 
                     hlog("[hook] RBD -> stale-cancel (menu-close)");
                     MENU_OPENED_AT.store(0, Ordering::SeqCst);
                     dispatch(EV_MENU_CANCEL, info.pt.x, info.pt.y);
-                    return LRESULT(1);
-                }
-                if is_down(STRIKE_VK) {
-                    // 技能触发：吞掉按下并成对吞掉释放，防止原生菜单
-                    hlog("[hook] RBD -> strike");
-                    SWALLOW_RIGHT_BUTTON.store(true, Ordering::SeqCst);
-                    dispatch(EV_STRIKE, info.pt.x, info.pt.y);
                     return LRESULT(1);
                 }
                 if is_down(MENU_VK.load(Ordering::Relaxed)) {

@@ -29,9 +29,10 @@ app.innerHTML = `
         <label class="field-label">触发修饰键</label>
         <div class="tg" role="radiogroup" aria-label="触发修饰键">
           <button type="button" class="tg-item" data-value="alt">Alt</button>
+          <button type="button" class="tg-item" data-value="ctrl">Ctrl</button>
           <button type="button" class="tg-item" data-value="shift">Shift</button>
         </div>
-        <p class="hint">Ctrl + 右键已固定用于「给我炸」，无需设置</p>
+        <p class="hint">按住修饰键并右键唤出轮盘，左键点选技能</p>
       </div>
     </section>
 

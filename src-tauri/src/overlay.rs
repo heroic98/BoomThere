@@ -71,12 +71,9 @@ pub fn get_settings(app: AppHandle) -> Settings {
     config::load(&app)
 }
 
-/// 保存设置：轮盘修饰键不可占用 Ctrl（「给我炸」固定使用），写配置并热更新钩子。
+/// 保存设置：写配置并热更新钩子。
 #[tauri::command]
 pub fn set_settings(app: AppHandle, menu_modifier: String) -> Result<(), String> {
-    if menu_modifier == "ctrl" {
-        return Err("Ctrl + 右键已固定用于「给我炸」，轮盘请选择 Alt 或 Shift".into());
-    }
     let menu_vk =
         input::vk_from_name(&menu_modifier).ok_or_else(|| format!("不支持的修饰键：{menu_modifier}"))?;
     let settings = Settings { menu_modifier };
