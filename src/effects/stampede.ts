@@ -1,193 +1,156 @@
-import { Application, Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
+import { Application, Container, Graphics, Sprite, Text, Texture, Ticker } from 'pixi.js';
 import gsap from 'gsap';
 import { isAirstrikeRunning } from './airstrike';
 import { isMenuAnimating, isMenuOpen } from './menu';
-import { initAudio, sfxHooves } from './audio';
+import { initAudio, sfxHooves, sfxStomp } from './audio';
 import { destroyAllParticles, requestFinishWhenDrained, ringTexture, smokePuffTexture, softTexture, spawn } from './particles';
+import { ALL_FRAMES, ART_CX, ART_GROUND, ART_H, ART_W, RUN_FRAMES, drawAnimal, type AnimalKind, type FrameName } from './stampedeArt';
 
-type AnimalKind = 'cow' | 'horse';
+/** 烘焙倍率：2x 画布保证高分屏下描边清晰。 */
+const BAKE = 2;
+/** 牛马显示尺寸（相对逻辑画布）。 */
+const SIZE = 0.62;
 const textureCache = new Map<string, Texture>();
 let running = false;
 const rand = (min: number, max: number): number => min + Math.random() * (max - min);
 
-function rounded(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
-  ctx.beginPath();
-  ctx.moveTo(x + r, y);
-  ctx.lineTo(x + w - r, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + r);
-  ctx.lineTo(x + w, y + h - r);
-  ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h);
-  ctx.lineTo(x + r, y + h);
-  ctx.quadraticCurveTo(x, y + h, x, y + h - r);
-  ctx.lineTo(x, y + r);
-  ctx.quadraticCurveTo(x, y, x + r, y);
-  ctx.closePath();
-}
-
-function animalTexture(kind: AnimalKind, phase: number): Texture {
-  const key = `${kind}:${phase}`;
+function animalTexture(kind: AnimalKind, frame: FrameName): Texture {
+  const key = `${kind}:${frame}`;
   const cached = textureCache.get(key);
   if (cached) return cached;
   const cv = document.createElement('canvas');
-  cv.width = 200;
-  cv.height = 150;
+  cv.width = ART_W * BAKE;
+  cv.height = ART_H * BAKE;
   const ctx = cv.getContext('2d')!;
-  ctx.lineJoin = 'round';
-  ctx.lineCap = 'round';
-  const outline = '#302b2a';
-
-  const legs = (tops: number[], y: number, color: string): void => {
-    tops.forEach((x, i) => {
-      const swing = (i + phase) % 2 === 0 ? 9 : -8;
-      ctx.beginPath();
-      ctx.moveTo(x, y);
-      ctx.lineTo(x + swing * 0.45, y + 18);
-      ctx.lineTo(x + swing, 132);
-      ctx.strokeStyle = outline;
-      ctx.lineWidth = 12;
-      ctx.stroke();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = 7;
-      ctx.stroke();
-      rounded(ctx, x + swing - 6, 126, 15, 9, 3);
-      ctx.fillStyle = '#292625';
-      ctx.fill();
-    });
-  };
-
-  if (kind === 'cow') {
-    // 尾巴与身体
-    ctx.beginPath();
-    ctx.moveTo(32, 62);
-    ctx.quadraticCurveTo(8, 48, 15, 29);
-    ctx.strokeStyle = outline;
-    ctx.lineWidth = 5;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.arc(15, 28, 7, 0, Math.PI * 2);
-    ctx.fillStyle = '#473c36';
-    ctx.fill();
-    legs([48, 72, 101, 122], 92, '#f5f0e7');
-    rounded(ctx, 27, 45, 112, 61, 27);
-    ctx.fillStyle = '#fffaf0';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = outline;
-    ctx.stroke();
-    // 不规则奶牛斑
-    ctx.fillStyle = '#4b403b';
-    for (const [x, y, rx, ry] of [[55, 63, 19, 13], [92, 87, 20, 12], [116, 57, 13, 10]]) {
-      ctx.beginPath();
-      ctx.ellipse(x, y, rx, ry, -0.25, 0, Math.PI * 2);
-      ctx.fill();
-    }
-    // 牛角、耳朵、面部
-    ctx.fillStyle = '#f4d58a';
-    ctx.beginPath();
-    ctx.moveTo(137, 39); ctx.lineTo(133, 19); ctx.lineTo(148, 35); ctx.closePath(); ctx.fill();
-    ctx.beginPath();
-    ctx.moveTo(162, 38); ctx.lineTo(174, 21); ctx.lineTo(174, 43); ctx.closePath(); ctx.fill();
-    ctx.fillStyle = '#d69c91';
-    ctx.beginPath(); ctx.ellipse(133, 47, 14, 8, -0.3, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.ellipse(170, 46, 13, 8, 0.3, 0, Math.PI * 2); ctx.fill();
-    rounded(ctx, 130, 35, 46, 51, 17);
-    ctx.fillStyle = '#fffaf0';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = outline;
-    ctx.stroke();
-    ctx.fillStyle = '#4b403b';
-    ctx.beginPath(); ctx.ellipse(145, 48, 9, 11, -0.3, 0, Math.PI * 2); ctx.fill();
-    rounded(ctx, 143, 63, 42, 27, 12);
-    ctx.fillStyle = '#e8aaa3';
-    ctx.fill();
-    ctx.strokeStyle = outline;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.fillStyle = '#241f1e';
-    ctx.beginPath(); ctx.arc(158, 50, 3.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(156, 75, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(174, 75, 2.4, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(159, 49, 1, 0, Math.PI * 2); ctx.fill();
-  } else {
-    // 马鬃与尾巴
-    ctx.beginPath();
-    ctx.moveTo(29, 65);
-    ctx.quadraticCurveTo(3, 70, 10, 105);
-    ctx.quadraticCurveTo(20, 91, 29, 91);
-    ctx.strokeStyle = '#3a2924';
-    ctx.lineWidth = 12;
-    ctx.stroke();
-    legs([47, 72, 103, 123], 94, '#a96138');
-    rounded(ctx, 26, 48, 108, 57, 25);
-    ctx.fillStyle = '#b96f43';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = outline;
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(112, 66); ctx.lineTo(126, 31); ctx.lineTo(151, 35); ctx.lineTo(146, 75); ctx.closePath();
-    ctx.fillStyle = '#c77e4e';
-    ctx.fill();
-    ctx.stroke();
-    ctx.beginPath();
-    ctx.moveTo(119, 62); ctx.lineTo(124, 25); ctx.lineTo(137, 31); ctx.lineTo(132, 48); ctx.lineTo(143, 43); ctx.lineTo(139, 62);
-    ctx.strokeStyle = '#3a2924';
-    ctx.lineWidth = 9;
-    ctx.stroke();
-    ctx.fillStyle = '#b96f43';
-    ctx.beginPath(); ctx.moveTo(139, 33); ctx.lineTo(139, 16); ctx.lineTo(149, 32); ctx.closePath(); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(155, 31); ctx.lineTo(164, 17); ctx.lineTo(166, 37); ctx.closePath(); ctx.fill();
-    rounded(ctx, 137, 29, 49, 42, 13);
-    ctx.fillStyle = '#c77e4e';
-    ctx.fill();
-    ctx.lineWidth = 4;
-    ctx.strokeStyle = outline;
-    ctx.stroke();
-    rounded(ctx, 161, 51, 30, 25, 10);
-    ctx.fillStyle = '#d8996e';
-    ctx.fill();
-    ctx.strokeStyle = outline;
-    ctx.lineWidth = 3;
-    ctx.stroke();
-    ctx.fillStyle = '#211b19';
-    ctx.beginPath(); ctx.arc(161, 42, 3.2, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.arc(179, 62, 2.2, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = '#fff';
-    ctx.beginPath(); ctx.arc(162, 41, 1, 0, Math.PI * 2); ctx.fill();
-    ctx.beginPath(); ctx.moveTo(145, 30); ctx.lineTo(154, 32); ctx.lineTo(150, 52); ctx.lineTo(143, 49); ctx.closePath();
-    ctx.fillStyle = '#fff5df';
-    ctx.fill();
-  }
+  ctx.scale(BAKE, BAKE);
+  drawAnimal(ctx, kind, frame);
   const tex = Texture.from(cv);
   textureCache.set(key, tex);
   return tex;
 }
 
+/** 碎土块贴图：不规则多边形。 */
+function chipTexture(): Texture {
+  const cached = textureCache.get('chip');
+  if (cached) return cached;
+  const cv = document.createElement('canvas');
+  cv.width = cv.height = 16;
+  const ctx = cv.getContext('2d')!;
+  ctx.beginPath();
+  ctx.moveTo(3, 5); ctx.lineTo(9, 2); ctx.lineTo(14, 6); ctx.lineTo(12, 13); ctx.lineTo(5, 14); ctx.closePath();
+  ctx.fillStyle = '#5c4532';
+  ctx.fill();
+  ctx.fillStyle = '#8a6b4c';
+  ctx.beginPath(); ctx.moveTo(4, 5); ctx.lineTo(9, 3); ctx.lineTo(10, 7); ctx.closePath(); ctx.fill();
+  const tex = Texture.from(cv);
+  textureCache.set('chip', tex);
+  return tex;
+}
+
+const shadowTexture = (): Texture => softTexture('#1e1612', 'puff');
+
 export function prewarmStampedeAssets(): Texture[] {
   const textures: Texture[] = [];
   for (const kind of ['cow', 'horse'] as AnimalKind[]) {
-    textures.push(animalTexture(kind, 0), animalTexture(kind, 1));
+    for (const f of ALL_FRAMES) textures.push(animalTexture(kind, f));
   }
+  textures.push(chipTexture(), shadowTexture(), ringTexture('#d8b98e'), smokePuffTexture());
   return textures;
 }
 
-function kickDust(parent: Container, x: number, y: number, amount = 2): void {
-  const tex = smokePuffTexture();
-  for (let i = 0; i < amount; i++) {
+/** 地裂纹：从中心放射的锯齿线，按进度逐步延伸（透视压扁）。 */
+function makeCracks(): Array<Array<[number, number]>> {
+  const rays: Array<Array<[number, number]>> = [];
+  const n = 9;
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2 + rand(-0.25, 0.25);
+    const len = rand(48, 92);
+    const pts: Array<[number, number]> = [[0, 0]];
+    let ang = a;
+    for (let s = 1; s <= 5; s++) {
+      ang += rand(-0.35, 0.35);
+      const r = (len * s) / 5;
+      pts.push([Math.cos(ang) * r, Math.sin(ang) * r * 0.4]);
+    }
+    rays.push(pts);
+  }
+  return rays;
+}
+
+function drawCracks(g: Graphics, rays: Array<Array<[number, number]>>, progress: number): void {
+  g.clear();
+  for (const width of [3.2, 1.4]) {
+    for (const pts of rays) {
+      const segs = (pts.length - 1) * progress;
+      g.moveTo(pts[0][0], pts[0][1]);
+      for (let s = 1; s < pts.length; s++) {
+        const k = Math.min(1, segs - (s - 1));
+        if (k <= 0) break;
+        const [x0, y0] = pts[s - 1];
+        const [x1, y1] = pts[s];
+        g.lineTo(x0 + (x1 - x0) * k, y0 + (y1 - y0) * k);
+      }
+    }
+    g.stroke(width > 2
+      ? { width, color: 0x3b2a1e, alpha: 0.72, cap: 'round', join: 'round' }
+      : { width, color: 0xc9a77c, alpha: 0.5, cap: 'round', join: 'round' });
+  }
+}
+
+/** 一次蹄击的落点特效：压扁尘环 + 贴地扬尘 + 飞溅碎土。 */
+function impactFx(parent: Container, x: number, y: number, heavy: boolean): void {
+  const puff = smokePuffTexture();
+  const ring = ringTexture('#d8b98e');
+  spawn({ parent, tex: ring, x, y, life: heavy ? 0.7 : 0.45, sc0: 0.15, sc1: heavy ? 2.1 : 1.05, sy0: 0.05, sy1: heavy ? 0.66 : 0.32, a0: heavy ? 0.85 : 0.6, easeOut: true });
+  if (heavy) {
+    spawn({ parent, tex: ring, x, y, delay: 0.08, life: 0.9, sc0: 0.2, sc1: 3, sy0: 0.06, sy1: 0.9, a0: 0.45, easeOut: true });
+    spawn({ parent, tex: softTexture('#ffe2b0'), x, y: y - 6, life: 0.35, sc0: 1.4, sc1: 2.6, sy0: 0.5, sy1: 0.9, a0: 0.55, additive: true });
+  }
+  const dustN = heavy ? 18 : 7;
+  for (let i = 0; i < dustN; i++) {
+    const a = (i / dustN) * Math.PI * 2 + rand(-0.2, 0.2);
+    const sp = rand(80, heavy ? 260 : 170);
     spawn({
-      parent, tex, x: x + rand(-26, 26), y: y + rand(-4, 5),
-      vx: rand(-65, 65), vy: rand(-42, -16), g: -6, drag: 1.8,
-      life: rand(0.65, 1.05), sc0: rand(0.15, 0.28), sc1: rand(0.75, 1.2),
-      a0: 0.62, tint: 0xc5a681, rot: rand(0, 6), spin: rand(-0.8, 0.8), fadeIn: 0.08,
+      parent, tex: puff, x: x + Math.cos(a) * 10, y: y + Math.sin(a) * 4,
+      vx: Math.cos(a) * sp, vy: Math.sin(a) * sp * 0.3 - rand(10, 40), g: -12, drag: 2.6,
+      life: rand(0.7, heavy ? 1.5 : 1.05), sc0: rand(0.18, 0.3), sc1: rand(0.8, heavy ? 1.7 : 1.2),
+      a0: 0.6, tint: 0xc8a77e, rot: rand(0, 6), spin: rand(-1, 1), fadeIn: 0.06,
     });
   }
-  spawn({
-    parent, tex: ringTexture('#d8b98e'), x, y, life: 0.48,
-    sc0: 0.12, sc1: 0.75, sy0: 0.04, sy1: 0.2, a0: 0.42, easeOut: true,
-  });
+  const chipN = heavy ? 14 : 5;
+  for (let i = 0; i < chipN; i++) {
+    spawn({
+      parent, tex: chipTexture(), x: x + rand(-14, 14), y: y - 2,
+      vx: rand(-150, 150), vy: -rand(120, heavy ? 330 : 240), g: 950,
+      life: rand(0.45, 0.7), sc0: rand(0.5, 0.95), sc1: rand(0.4, 0.8), a0: 1, a1: 0.6,
+      rot: rand(0, 6), spin: rand(-12, 12),
+    });
+  }
 }
+
+interface Beast {
+  sp: Sprite;
+  shadow: Sprite;
+  kind: AnimalKind;
+  side: -1 | 1;
+  baseY: number;
+  running: boolean;
+}
+
+// 时间轴关键点（秒）
+const T_ENTER = 0.3;
+const T_BEAT0 = 1.55;
+const BEAT_GAP = 0.3;
+const BEATS = 7;
+const T_FINAL = T_BEAT0 + BEATS * BEAT_GAP + 0.18;
+const T_LEAVE = T_FINAL + 0.45;
+const T_END = T_LEAVE + 1.25;
+
+/**
+ * 左右两组各 5 头，头朝目标，前蹄都砸在目标 ±45px 内。
+ * 后排（y 小）贴近中心，前排向外让开，避免身体挡住落点。偏移为「左组」坐标，右组镜像。
+ */
+const SLOTS: Array<[number, number]> = [[-72, -18], [-84, 6], [-124, -30], [-128, 30], [-150, 2]];
 
 function runEffect(app: Application, x: number, y: number): Promise<void> {
   return new Promise((resolve) => {
@@ -195,38 +158,66 @@ function runEffect(app: Application, x: number, y: number): Promise<void> {
     const ground = new Container();
     const herd = new Container();
     const fx = new Container();
+    herd.sortableChildren = true;
     wrap.addChild(ground, herd, fx);
     app.stage.addChild(wrap);
     app.ticker.start();
 
-    const sigil = new Graphics();
-    sigil.position.set(x, y);
-    sigil.circle(0, 0, 62).stroke({ width: 2, color: 0xe9b66f, alpha: 0.75 });
-    sigil.circle(0, 0, 48).stroke({ width: 1, color: 0xffdf9e, alpha: 0.5 });
-    sigil.ellipse(0, 33, 135, 32).stroke({ width: 2, color: 0xc69a68, alpha: 0.4 });
-    for (let i = 0; i < 12; i++) {
-      const a = i * Math.PI / 6;
-      sigil.moveTo(Math.cos(a) * 53, Math.sin(a) * 53);
-      sigil.lineTo(Math.cos(a) * 62, Math.sin(a) * 62);
+    // 贴地锁定圈（透视椭圆）+ 向内收拢的四角括号
+    const reticle = new Graphics();
+    reticle.position.set(x, y);
+    reticle.ellipse(0, 0, 92, 32).stroke({ width: 2, color: 0xe9b66f, alpha: 0.8 });
+    reticle.ellipse(0, 0, 44, 15).stroke({ width: 1.5, color: 0xffdf9e, alpha: 0.6 });
+    reticle.ellipse(0, 0, 8, 3).fill({ color: 0xffdf9e, alpha: 0.8 });
+    ground.addChild(reticle);
+    const brackets = new Graphics();
+    brackets.position.set(x, y);
+    for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const bx = sx * 112;
+      const by = sy * 44;
+      brackets.moveTo(bx, by - sy * 14).lineTo(bx, by).lineTo(bx - sx * 22, by);
     }
-    sigil.stroke({ width: 2, color: 0xe9b66f, alpha: 0.7 });
-    ground.addChild(sigil);
+    brackets.stroke({ width: 3, color: 0xffd28a, alpha: 0.9, cap: 'round', join: 'round' });
+    ground.addChild(brackets);
+
+    const cracks = new Graphics();
+    cracks.position.set(x, y);
+    const crater = new Graphics();
+    crater.position.set(x, y);
+    crater.ellipse(0, 0, 40, 14).fill({ color: 0x3b2a1e, alpha: 0.32 });
+    crater.ellipse(0, 0, 22, 8).fill({ color: 0x2a1d14, alpha: 0.3 });
+    crater.alpha = 0;
+    ground.addChild(crater, cracks);
+    const rays = makeCracks();
+    const crackState = { p: 0 };
 
     const label = new Text({
-      text: '牛马大军 · 集结！',
-      style: { fontFamily: '"Noto Sans SC", "Microsoft YaHei", sans-serif', fontSize: 17, fontWeight: '700', letterSpacing: 3, fill: 0xfff1cf, stroke: { color: 0x5c412d, width: 4 } },
+      text: '牛马大军 · 踩它！',
+      style: { fontFamily: '"Noto Sans SC", "Microsoft YaHei", sans-serif', fontSize: 18, fontWeight: '700', letterSpacing: 3, fill: 0xfff1cf, stroke: { color: 0x5c412d, width: 4 } },
     });
     label.anchor.set(0.5);
-    label.position.set(x, y - 188);
+    label.position.set(x, y - 150);
     ground.addChild(label);
 
     const tl = gsap.timeline();
     const extraTweens: gsap.core.Tween[] = [];
+    const beasts: Beast[] = [];
     let finished = false;
+
+    // 影子与扬尘跟随：每帧把影子对齐到牛马脚下
+    const follow = (): void => {
+      for (const b of beasts) {
+        b.shadow.x = b.sp.x + b.side * -6;
+        b.shadow.alpha = b.sp.alpha * (0.5 - (b.baseY - b.sp.y) * 0.012);
+      }
+    };
+    app.ticker.add(follow);
+
     const finish = (aborted = false): void => {
       if (finished) return;
       finished = true;
       window.clearTimeout(safety);
+      app.ticker.remove(follow as (t: Ticker) => void);
       tl.kill();
       extraTweens.forEach((t) => t.kill());
       if (aborted) destroyAllParticles();
@@ -236,75 +227,117 @@ function runEffect(app: Application, x: number, y: number): Promise<void> {
     };
     const safety = window.setTimeout(() => finish(true), 12000);
 
-    tl.fromTo(sigil, { alpha: 0 }, { alpha: 1, duration: 0.18 }, 0);
-    tl.fromTo(sigil.scale, { x: 0.4, y: 0.4 }, { x: 1, y: 1, duration: 0.5, ease: 'back.out(2)' }, 0);
-    tl.to(sigil, { rotation: 1.2, duration: 4.1, ease: 'none' }, 0);
-    tl.fromTo(label, { alpha: 0, y: y - 170 }, { alpha: 1, y: y - 188, duration: 0.35 }, 0.2);
-    tl.to(label, { alpha: 0, y: y - 204, duration: 0.45 }, 4.25);
-    tl.to(sigil, { alpha: 0, duration: 0.5 }, 4.4);
+    // —— 锁定 ——
+    tl.fromTo(reticle, { alpha: 0 }, { alpha: 1, duration: 0.2 }, 0);
+    tl.fromTo(reticle.scale, { x: 1.6, y: 1.6 }, { x: 1, y: 1, duration: 0.45, ease: 'back.out(1.6)' }, 0);
+    tl.fromTo(brackets, { alpha: 0 }, { alpha: 1, duration: 0.15 }, 0.05);
+    tl.fromTo(brackets.scale, { x: 2, y: 2 }, { x: 1, y: 1, duration: 0.5, ease: 'power3.out' }, 0.05);
+    tl.fromTo(label, { alpha: 0, y: y - 132 }, { alpha: 1, y: y - 150, duration: 0.35 }, 0.15);
+    tl.to(label, { alpha: 0, y: y - 166, duration: 0.4 }, T_FINAL - 0.2);
+    tl.to(brackets, { alpha: 0, duration: 0.3 }, T_BEAT0 - 0.1);
 
-    const dust = softTexture('#b99a76', 'puff');
-    for (let i = 0; i < 14; i++) {
-      const kind: AnimalKind = i % 2 === 0 ? 'cow' : 'horse';
-      const lane = Math.floor(i / 2);
-      const spotX = x + (i % 2 === 0 ? -76 : 76) + rand(-28, 28);
-      const spotY = y + (lane - 3) * 43 + rand(-9, 9);
-      const startX = -260 - (i % 4) * 110;
-      const startY = spotY + rand(-35, 35);
-      const size = (kind === 'horse' ? 0.63 : 0.59) * rand(0.9, 1.08);
-      const sp = new Sprite(animalTexture(kind, 0));
-      sp.anchor.set(0.5, 0.88);
-      sp.scale.set(size);
+    // —— 入场：左右两组相向冲锋 ——
+    const W = app.screen.width;
+    for (let i = 0; i < SLOTS.length * 2; i++) {
+      const side: -1 | 1 = i % 2 === 0 ? -1 : 1;
+      const order = Math.floor(i / 2);
+      const kind: AnimalKind = (order + (side < 0 ? 0 : 1)) % 2 === 0 ? 'horse' : 'cow';
+      const [ox, oy] = SLOTS[order];
+      const spotX = x + (side < 0 ? ox : -ox) + rand(-5, 5);
+      const spotY = y + oy + rand(-3, 3);
+      const startX = side < 0 ? -180 - order * 70 : W + 180 + order * 70;
+      const startY = spotY + rand(-26, 26);
+      const s = (SIZE / BAKE) * (kind === 'horse' ? 1 : 0.98) * rand(0.94, 1.06);
+
+      const shadow = new Sprite(shadowTexture());
+      shadow.anchor.set(0.5);
+      shadow.width = 150 * SIZE * 1.1;
+      shadow.height = 26;
+      shadow.position.set(startX, spotY + 2);
+      ground.addChild(shadow);
+
+      const sp = new Sprite(animalTexture(kind, 'run0'));
+      sp.anchor.set(ART_CX / ART_W, ART_GROUND / ART_H);
+      // 左组朝右（正向），右组镜像朝左
+      sp.scale.set(side < 0 ? s : -s, s);
       sp.position.set(startX, startY);
+      sp.zIndex = spotY;
       herd.addChild(sp);
+      const b: Beast = { sp, shadow, kind, side, baseY: spotY, running: true };
+      beasts.push(b);
 
-      let phase = 0;
-      const gait = gsap.to({}, { duration: 0.105, repeat: -1, onRepeat: () => {
-        phase = 1 - phase;
-        sp.texture = animalTexture(kind, phase);
+      let f = Math.floor(rand(0, RUN_FRAMES));
+      let tick = 0;
+      const gait = gsap.to({}, { duration: 0.065, repeat: -1, onRepeat: () => {
+        if (!b.running) return;
+        f = (f + 1) % RUN_FRAMES;
+        sp.texture = animalTexture(kind, `run${f}` as FrameName);
+        if (++tick % 3 === 0 && sp.x > -60 && sp.x < W + 60) {
+          spawn({
+            parent: fx, tex: smokePuffTexture(), x: sp.x + side * 40, y: sp.y + rand(-2, 3),
+            vx: side * 60 + rand(-20, 20), vy: rand(-30, -10), g: -8, drag: 2,
+            life: rand(0.5, 0.8), sc0: 0.14, sc1: rand(0.5, 0.75), a0: 0.45, tint: 0xc5a681, rot: rand(0, 6),
+          });
+        }
       } });
       extraTweens.push(gait);
-      const bounce = gsap.to(sp.position, { y: '+=9', duration: 0.13, repeat: -1, yoyo: true, paused: true, ease: 'power1.inOut' });
-      extraTweens.push(bounce);
 
-      const enterAt = 0.45 + (i % 4) * 0.08;
-      const stompAt = 1.65 + (i % 3) * 0.1;
-      const leaveAt = 4.25 + (i % 4) * 0.09;
-      tl.to(sp.position, { x: spotX, y: spotY, duration: 0.85 + (i % 3) * 0.08, ease: 'power2.out' }, enterAt);
-      tl.call(() => bounce.play(), undefined, stompAt);
-      tl.call(() => { bounce.pause(0); sp.position.y = spotY; }, undefined, leaveAt);
-      tl.to(sp.position, { x: window.innerWidth + 260 + (i % 3) * 120, y: spotY + rand(-70, 70), duration: 0.95 + (i % 3) * 0.1, ease: 'power2.in' }, leaveAt);
+      const enterAt = T_ENTER + order * 0.08 + (side > 0 ? 0.04 : 0);
+      const runDur = 0.95;
+      tl.to(sp.position, { x: spotX, y: spotY, duration: runDur, ease: 'power2.out' }, enterAt);
+      tl.call(() => { b.running = false; sp.texture = animalTexture(kind, 'stand'); }, undefined, enterAt + runDur - 0.08);
+
+      // —— 踩踏：两组交替砸向中心，抖动很小以保持节奏齐整 ——
+      const jitter = rand(0, 0.035);
+      const stomp = (at: number, heavy: boolean): void => {
+        const lift = heavy ? 18 : 10;
+        const windup = heavy ? 0.32 : 0.2;
+        tl.call(() => { sp.texture = animalTexture(kind, 'rear'); }, undefined, at - windup + jitter);
+        tl.to(sp.position, { y: spotY - lift, duration: windup - 0.06, ease: 'power2.out' }, at - windup + jitter);
+        tl.call(() => { sp.texture = animalTexture(kind, 'slam'); }, undefined, at - 0.05 + jitter);
+        tl.to(sp.position, { y: spotY, duration: 0.05, ease: 'power3.in' }, at - 0.05 + jitter);
+        tl.call(() => { if (!b.running) sp.texture = animalTexture(kind, 'stand'); }, undefined, at + 0.14);
+      };
+      for (let k = 0; k < BEATS; k++) {
+        if ((k % 2 === 0) === (side < 0)) stomp(T_BEAT0 + k * BEAT_GAP, false);
+      }
+      stomp(T_FINAL, true);
+
+      // —— 撤离：沿各自方向冲过目标点离场 ——
+      const leaveAt = T_LEAVE + order * 0.06 + (side > 0 ? 0.03 : 0);
+      tl.call(() => { b.running = true; }, undefined, leaveAt);
+      tl.to(sp.position, { x: side < 0 ? W + 220 : -220, y: spotY + rand(-30, 30), duration: 1.0, ease: 'power2.in' }, leaveAt);
       tl.to(sp, { alpha: 0, duration: 0.15 }, leaveAt + 0.9);
-
-      // 每只牛马留下淡淡蹄印，随后随扬尘一起消散。
-      const marks = new Graphics();
-      for (const side of [-1, 1]) {
-        marks.ellipse(spotX + side * 18, spotY + 34 + side * 7, 5, 9).fill({ color: 0x66513e, alpha: 0.42 });
-        marks.circle(spotX + side * 18 - 4, spotY + 24 + side * 7, 2).fill({ color: 0x66513e, alpha: 0.32 });
-        marks.circle(spotX + side * 18 + 4, spotY + 24 + side * 7, 2).fill({ color: 0x66513e, alpha: 0.32 });
-      }
-      marks.alpha = 0;
-      ground.addChild(marks);
-      tl.to(marks, { alpha: 0.48, duration: 0.25 }, stompAt + 0.2);
-      tl.to(marks, { alpha: 0, duration: 1 }, leaveAt + 0.35);
-
-      for (let step = 0; step < 6; step++) {
-        const at = stompAt + step * 0.38;
-        tl.call(() => kickDust(fx, spotX, spotY + 32, i % 3 === 0 ? 3 : 2), undefined, at);
-        if (i % 4 === 0) {
-          tl.to(wrap, { x: rand(-4, 4), y: rand(-3, 3), duration: 0.055, yoyo: true, repeat: 1 }, at);
-          tl.set(wrap, { x: 0, y: 0 }, at + 0.12);
-        }
-      }
-      // 起步与撤离时各补一团尘，让奔跑方向更清楚。
-      tl.call(() => spawn({ parent: fx, tex: dust, x: startX + 50, y: startY + 35, vx: -80, vy: -18, life: 0.8, sc0: 0.25, sc1: 1.1, a0: 0.45 }), undefined, enterAt + 0.45);
-      tl.call(() => kickDust(fx, spotX - 30, spotY + 32, 3), undefined, leaveAt);
     }
-    tl.call(() => requestFinishWhenDrained(() => finish()), undefined, 5.65);
+
+    // —— 每拍落点特效：集中在目标中心，偏向本拍那一组 ——
+    const beatFx = (at: number, side: number, crackTo: number, heavy: boolean): void => {
+      tl.call(() => {
+        impactFx(fx, x + side * (heavy ? 0 : 14) + rand(-4, 4), y + rand(-3, 3), heavy);
+        try { void sfxStomp(heavy); } catch { /* 音频失败不影响视觉 */ }
+      }, undefined, at + 0.02);
+      tl.to(crackState, { p: crackTo, duration: 0.12, ease: 'power2.out', onUpdate: () => drawCracks(cracks, rays, crackState.p) }, at);
+      const amp = heavy ? 9 : 3.5;
+      tl.to(wrap, { x: rand(-amp, amp), y: amp * 0.8, duration: 0.04 }, at);
+      tl.to(wrap, { x: rand(-amp, amp) * 0.5, y: -amp * 0.3, duration: 0.05 }, at + 0.04);
+      tl.to(wrap, { x: 0, y: 0, duration: heavy ? 0.25 : 0.1, ease: 'power2.out' }, at + 0.09);
+      tl.fromTo(reticle.scale, { x: heavy ? 1.3 : 1.1, y: heavy ? 1.3 : 1.1 }, { x: 1, y: 1, duration: 0.2, ease: 'power2.out' }, at);
+    };
+    // 裂纹随拍数逐步延伸，齐踏时一次裂满
+    for (let k = 0; k < BEATS; k++) {
+      beatFx(T_BEAT0 + k * BEAT_GAP, k % 2 === 0 ? -1 : 1, ((k + 1) / BEATS) * 0.7, false);
+    }
+    beatFx(T_FINAL, 0, 1, true);
+    tl.to(crater, { alpha: 1, duration: 0.12 }, T_FINAL);
+    tl.to(reticle, { alpha: 0, duration: 0.35 }, T_FINAL + 0.05);
+    tl.to([cracks, crater], { alpha: 0, duration: 0.9 }, T_LEAVE + 0.5);
+
+    tl.call(() => requestFinishWhenDrained(() => finish()), undefined, T_END);
 
     try {
       initAudio();
-      void sfxHooves();
+      tl.call(() => { void sfxHooves(1.25); }, undefined, T_ENTER);
+      tl.call(() => { void sfxHooves(1.0); }, undefined, T_LEAVE);
     } catch { /* 音频失败不影响视觉 */ }
   });
 }

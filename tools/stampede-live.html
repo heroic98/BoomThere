@@ -1,0 +1,31 @@
+<!doctype html>
+<html><body style="margin:0;background:#8f9ba6;overflow:hidden">
+<script type="module">
+// 离线预览：?t=秒 手动步进 GSAP 与 Pixi 时钟到指定时刻再出图
+import gsap from 'gsap';
+import { initPixi } from '/src/engine/pixi.ts';
+import { bindParticles } from '/src/effects/particles.ts';
+import { playStampede, prewarmStampedeAssets } from '/src/effects/stampede.ts';
+const T = Number(new URLSearchParams(location.search).get('t') || 2);
+const app = await initPixi();
+bindParticles(app);
+prewarmStampedeAssets();
+localStorage.setItem('bt_sound', '0');
+gsap.ticker.sleep();
+const base = gsap.ticker.time;
+playStampede(app, innerWidth / 2, innerHeight / 2 + 40);
+app.ticker.stop();
+const t0 = performance.now();
+for (let i = 1; i <= Math.round(T * 60); i++) {
+  gsap.updateRoot(base + i / 60);
+  app.ticker.update(t0 + i * 1000 / 60);
+}
+app.ticker.stop();
+// WebGL 画布截图会拿到合成器旧帧，改为 extract 导出到 <img>
+const url = await app.renderer.extract.base64({ target: app.stage, frame: app.screen });
+app.canvas.style.display = 'none';
+const img = new Image();
+img.src = url;
+img.style.cssText = 'position:fixed;left:0;top:0;width:100vw;height:100vh';
+document.body.appendChild(img);
+</script></body></html>

@@ -119,29 +119,67 @@ export async function sfxBoom(): Promise<void> {
   }
 }
 
-/** 密集蹄声：低通噪声短促敲击，错峰形成成群奔袭与踩踏的节奏。 */
-export async function sfxHooves(): Promise<void> {
+/** 奔袭蹄声：低通噪声短促敲击，错峰形成成群奔跑的鼓点，持续 duration 秒。 */
+export async function sfxHooves(duration = 1.2): Promise<void> {
   if (!soundEnabled()) return;
   if (!(await ensureRunning()) || !ctx || !master || !noiseBuffer) return;
   try {
     const t0 = ctx.currentTime;
-    for (let i = 0; i < 32; i++) {
-      const at = t0 + 0.35 + i * 0.145 + (i % 3) * 0.018;
+    const n = Math.round(duration / 0.06);
+    for (let i = 0; i < n; i++) {
+      const at = t0 + i * 0.06 + (i % 3) * 0.012;
       const src = ctx.createBufferSource();
       src.buffer = noiseBuffer;
       const lp = ctx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(i % 2 ? 240 : 180, at);
+      lp.frequency.setValueAtTime(i % 2 ? 260 : 190, at);
       const g = ctx.createGain();
       g.gain.setValueAtTime(0.0001, at);
-      g.gain.exponentialRampToValueAtTime(i % 4 === 0 ? 0.24 : 0.13, at + 0.008);
-      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.075);
+      g.gain.exponentialRampToValueAtTime(i % 4 === 0 ? 0.2 : 0.11, at + 0.006);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.06);
       src.connect(lp);
       lp.connect(g);
       g.connect(master);
       src.start(at);
-      track(src, at + 0.085);
+      track(src, at + 0.07);
     }
+  } catch {
+    /* 忽略音频错误 */
+  }
+}
+
+/** 踩踏重击：低通噪声 + 下滑正弦闷响；heavy 为最后的齐踏。 */
+export async function sfxStomp(heavy = false): Promise<void> {
+  if (!soundEnabled()) return;
+  if (!(await ensureRunning()) || !ctx || !master || !noiseBuffer) return;
+  try {
+    const t0 = ctx.currentTime;
+    const src = ctx.createBufferSource();
+    src.buffer = noiseBuffer;
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.setValueAtTime(heavy ? 700 : 420, t0);
+    lp.frequency.exponentialRampToValueAtTime(90, t0 + (heavy ? 0.5 : 0.18));
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(heavy ? 0.85 : 0.42, t0);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + (heavy ? 0.7 : 0.22));
+    src.connect(lp);
+    lp.connect(g);
+    g.connect(master);
+    src.start(t0);
+    track(src, t0 + (heavy ? 0.75 : 0.25));
+
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(heavy ? 95 : 120, t0);
+    osc.frequency.exponentialRampToValueAtTime(heavy ? 32 : 48, t0 + (heavy ? 0.45 : 0.14));
+    const og = ctx.createGain();
+    og.gain.setValueAtTime(heavy ? 0.7 : 0.38, t0);
+    og.gain.exponentialRampToValueAtTime(0.0001, t0 + (heavy ? 0.55 : 0.18));
+    osc.connect(og);
+    og.connect(master);
+    osc.start(t0);
+    track(osc, t0 + (heavy ? 0.6 : 0.2));
   } catch {
     /* 忽略音频错误 */
   }
