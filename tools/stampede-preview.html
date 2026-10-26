@@ -2,16 +2,19 @@
 <html><body style="margin:0;background:#7d8a96">
 <canvas id="c"></canvas>
 <script type="module">
-import { drawAnimal, ALL_FRAMES, ART_W, ART_H, ART_GROUND } from '/src/effects/stampedeArt.ts';
-const R = 1.4, cols = ALL_FRAMES.length;
+import { drawAnimal, ALL_FRAMES, ART_W, ART_H, ART_GROUND, VARIANTS } from '/src/effects/stampedeArt.ts';
+const q = new URLSearchParams(location.search);
+const R = Number(q.get('r') || 1), frames = q.get('f') ? q.get('f').split(',') : ALL_FRAMES, cols = frames.length;
+const rows = [];
+for (const k of ['horse', 'cow']) for (let v = 0; v < VARIANTS; v++) rows.push([k, v]);
 const c = document.getElementById('c');
-c.width = ART_W * cols * R; c.height = ART_H * 2 * R;
+c.width = ART_W * cols * R; c.height = ART_H * rows.length * R;
 const ctx = c.getContext('2d');
-['horse', 'cow'].forEach((k, row) => ALL_FRAMES.forEach((f, i) => {
+rows.forEach(([k, v], row) => frames.forEach((f, i) => {
   ctx.save(); ctx.scale(R, R); ctx.translate(i * ART_W, row * ART_H);
   ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.beginPath(); ctx.moveTo(0, ART_GROUND); ctx.lineTo(ART_W, ART_GROUND); ctx.stroke();
   ctx.strokeRect(0, 0, ART_W, ART_H);
-  drawAnimal(ctx, k, f); ctx.restore();
+  drawAnimal(ctx, k, f, v); ctx.restore();
 }));
 document.title = 'ready';
 </script></body></html>

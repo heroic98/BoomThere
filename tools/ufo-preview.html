@@ -8,7 +8,7 @@ const c = document.getElementById('c');
 c.width = UFO_W * 4.6; c.height = UFO_H * 2;
 const ctx = c.getContext('2d');
 const light = document.createElement('canvas'); light.width = light.height = 32;
-drawLight(light.getContext('2d'), 32, '#ffd54a');
+drawLight(light.getContext('2d'), 32, '#7ff6ff');
 const one = (x, y, s, lights) => {
   ctx.save(); ctx.translate(x, y); ctx.scale(s, s); drawUfo(ctx);
   if (lights) for (const [lx, ly] of UFO_LIGHTS) ctx.drawImage(light, UFO_CX + lx - 16, UFO_CY + ly - 16);

@@ -82,7 +82,7 @@ function beamTexture(): Texture {
 }
 
 export function prewarmUfoAssets(): Texture[] {
-  return [ufoTexture(), lightTexture('#ffd54a'), lightTexture('#7ff6ff'), beamTexture(), ringTexture('#7fe7ff'), softTexture('#9ff2ff')];
+  return [ufoTexture(), lightTexture('#7ff6ff'), beamTexture(), ringTexture('#7fe7ff'), softTexture('#9ff2ff')];
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number): void {
@@ -105,7 +105,7 @@ interface Target {
   radius: number;
   /** 切下来的头像（无取样时为 null） */
   piece: Texture | null;
-  /** 被吸走后留下的空洞（背景色 + 内阴影） */
+  /** 被吸走后留下的黑色空洞 */
   hole: Texture | null;
   found: boolean;
 }
@@ -145,19 +145,15 @@ function cutTarget(sample: ScreenSample | null, x: number, y: number): Target {
   holeCv.width = bw;
   holeCv.height = bh;
   const hc = holeCv.getContext('2d')!;
-  const [br, bg, bb] = r.bg;
+  // 黑洞：纯黑底，边缘一圈极淡的青色切口余光
   roundRectPath(hc, 0, 0, bw, bh, radius);
-  hc.fillStyle = `rgb(${br},${bg},${bb})`;
+  hc.fillStyle = '#000000';
   hc.fill();
-  // 内阴影：上沿更深，像从屏幕里抠掉了一块
   hc.save();
   hc.clip();
-  hc.shadowColor = 'rgba(0,0,0,0.55)';
-  hc.shadowBlur = 7 * scale;
-  hc.shadowOffsetY = 2 * scale;
-  hc.lineWidth = 6 * scale;
-  roundRectPath(hc, -3 * scale, -3 * scale, bw + 6 * scale, bh + 6 * scale, radius + 3 * scale);
-  hc.strokeStyle = 'rgba(0,0,0,0.6)';
+  hc.lineWidth = 2 * scale;
+  roundRectPath(hc, 0, 0, bw, bh, radius);
+  hc.strokeStyle = 'rgba(127,246,255,0.18)';
   hc.stroke();
   hc.restore();
 
@@ -306,7 +302,7 @@ function runEffect(app: Application, x: number, y: number, sample: ScreenSample 
     body.scale.set(1 / BAKE);
     ufo.addChild(body);
     const lights = UFO_LIGHTS.map(([lx, ly]) => {
-      const l = new Sprite(lightTexture('#ffd54a'));
+      const l = new Sprite(lightTexture('#7ff6ff'));
       l.anchor.set(0.5);
       l.scale.set(0.5 / BAKE * 1.6);
       l.position.set(lx, ly);
