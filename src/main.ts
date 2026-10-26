@@ -4,6 +4,7 @@ import { Container, Graphics, Sprite, Text, Texture } from 'pixi.js';
 import { initPixi, installRenderWatchdog } from './engine/pixi';
 import { bindParticles, prewarmEffectTextures } from './effects/particles';
 import { playAirstrike, isAirstrikeRunning, preloadAirstrikeAssets } from './effects/airstrike';
+import { isStampedeRunning, playStampede, prewarmStampedeAssets } from './effects/stampede';
 import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, menuHoverInfo, isMenuAnimating, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
 import { initAudio } from './effects/audio';
 
@@ -37,7 +38,14 @@ function registerSkills(app: Application): void {
     enabled: true,
     run: (x, y) => playAirstrike(app, x, y),
   });
-  registerEffect({ id: 'orbital', title: '轨道打击', description: '天基动能武器', icon: 'orbit', enabled: false, run: async () => {} });
+  registerEffect({
+    id: 'stampede',
+    title: '牛马踩踏',
+    description: '召唤牛马大军冲锋',
+    icon: 'herd',
+    enabled: true,
+    run: (x, y) => playStampede(app, x, y),
+  });
   registerEffect({ id: 'missiles', title: '导弹雨', description: '饱和导弹攻击', icon: 'missiles', enabled: false, run: async () => {} });
   registerEffect({ id: 'meteor', title: '陨石坠落', description: '天外来物轰炸', icon: 'meteor', enabled: false, run: async () => {} });
 }
@@ -135,7 +143,7 @@ function prewarmRenderer(app: Application): void {
   // 预热轮盘用到的全部文字字形（中文首渲栅格化是首开卡顿源）
   const family = '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif';
   const warmText = new Text({
-    text: '给我炸轨道打击导弹雨陨石坠落取消呼叫战机空袭此处天基动能武器饱和导弹攻击天外来物轰炸敬请期待0123456789',
+    text: '给我炸牛马踩踏导弹雨陨石坠落取消呼叫战机空袭此处召唤牛马大军冲锋集结饱和导弹攻击天外来物轰炸敬请期待0123456789',
     style: { fontFamily: family, fontSize: 18, fontWeight: '600', fill: 0x333333 },
   });
   warmText.position.set(-600, -600);
@@ -143,6 +151,11 @@ function prewarmRenderer(app: Application): void {
   prewarmEffectTextures().forEach((tex, i) => {
     const s = new Sprite(tex);
     s.position.set(-260, -320 + (i % 6) * 90 + Math.floor(i / 6) * 140);
+    warm.addChild(s);
+  });
+  prewarmStampedeAssets().forEach((tex, i) => {
+    const s = new Sprite(tex);
+    s.position.set(-400 + i * 120, -500);
     warm.addChild(s);
   });
   warm.position.set(-300, -300);
@@ -156,10 +169,10 @@ async function boot(): Promise<void> {
   await preloadAirstrikeAssets(); // 预烘焙矢量机甲战机并预加载炸弹素材
   bindParticles(app);
   bindRadialMenu(app);
-  bindAirstrikeRunningCheck(isAirstrikeRunning);
+  bindAirstrikeRunningCheck(() => isAirstrikeRunning() || isStampedeRunning());
   registerSkills(app);
   prewarmRenderer(app);
-  installRenderWatchdog(app, () => isAirstrikeRunning() || isMenuOpen() || isMenuAnimating());
+  installRenderWatchdog(app, () => isAirstrikeRunning() || isStampedeRunning() || isMenuOpen() || isMenuAnimating());
 
   if ('__TAURI_INTERNALS__' in window) {
     await setupTauriMode(app);

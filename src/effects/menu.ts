@@ -146,6 +146,18 @@ function drawIcon(g: Graphics, kind: string, color: number): void {
     g.circle(0, 0, 6.5).stroke(S);
     g.ellipse(0, 0, 14, 5).stroke(S);
     g.circle(13, -2.5, 1.8).fill({ color });
+  } else if (kind === 'herd') {
+    g.moveTo(-8, -8).lineTo(-14, -13).lineTo(-12, -5);
+    g.moveTo(8, -8).lineTo(14, -13).lineTo(12, -5);
+    g.moveTo(-10, -3).lineTo(-16, 0).lineTo(-10, 4);
+    g.moveTo(10, -3).lineTo(16, 0).lineTo(10, 4);
+    g.stroke(S);
+    g.roundRect(-10, -9, 20, 22, 6).stroke(S);
+    g.circle(-4, -1, 1.4).fill({ color });
+    g.circle(4, -1, 1.4).fill({ color });
+    g.ellipse(0, 7, 6, 4).stroke(S);
+    g.circle(-2.5, 7, 0.8).fill({ color });
+    g.circle(2.5, 7, 0.8).fill({ color });
   } else if (kind === 'missiles') {
     for (const [mx, my] of [
       [-9, -4],

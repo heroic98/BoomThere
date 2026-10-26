@@ -119,6 +119,34 @@ export async function sfxBoom(): Promise<void> {
   }
 }
 
+/** 密集蹄声：低通噪声短促敲击，错峰形成成群奔袭与踩踏的节奏。 */
+export async function sfxHooves(): Promise<void> {
+  if (!soundEnabled()) return;
+  if (!(await ensureRunning()) || !ctx || !master || !noiseBuffer) return;
+  try {
+    const t0 = ctx.currentTime;
+    for (let i = 0; i < 32; i++) {
+      const at = t0 + 0.35 + i * 0.145 + (i % 3) * 0.018;
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuffer;
+      const lp = ctx.createBiquadFilter();
+      lp.type = 'lowpass';
+      lp.frequency.setValueAtTime(i % 2 ? 240 : 180, at);
+      const g = ctx.createGain();
+      g.gain.setValueAtTime(0.0001, at);
+      g.gain.exponentialRampToValueAtTime(i % 4 === 0 ? 0.24 : 0.13, at + 0.008);
+      g.gain.exponentialRampToValueAtTime(0.0001, at + 0.075);
+      src.connect(lp);
+      lp.connect(g);
+      g.connect(master);
+      src.start(at);
+      track(src, at + 0.085);
+    }
+  } catch {
+    /* 忽略音频错误 */
+  }
+}
+
 /** 中止/清理时停掉所有声音源，保证无残留。 */
 export function stopAllAudio(): void {
   for (const n of liveNodes.splice(0)) {
