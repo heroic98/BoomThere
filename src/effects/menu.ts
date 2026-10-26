@@ -111,7 +111,7 @@ export interface EffectDef {
   id: string;
   title: string;
   description: string;
-  icon: string; // 线性图标种类（burst / orbit / missiles / meteor）
+  icon: string; // 线性图标种类（burst / herd / ufo / missiles / meteor）
   enabled: boolean;
   run: (x: number, y: number) => Promise<void>;
 }
@@ -158,6 +158,13 @@ function drawIcon(g: Graphics, kind: string, color: number): void {
     g.ellipse(0, 7, 6, 4).stroke(S);
     g.circle(-2.5, 7, 0.8).fill({ color });
     g.circle(2.5, 7, 0.8).fill({ color });
+  } else if (kind === 'ufo') {
+    g.ellipse(0, 1, 14, 4.5).stroke(S);
+    g.moveTo(-6.5, -1).bezierCurveTo(-6.5, -9, 6.5, -9, 6.5, -1).stroke(S);
+    g.moveTo(-5, 7).lineTo(-9, 14).moveTo(5, 7).lineTo(9, 14).stroke({ ...S, width: 1.6 });
+    g.circle(-8, 1, 1.1).fill({ color });
+    g.circle(0, 2.5, 1.1).fill({ color });
+    g.circle(8, 1, 1.1).fill({ color });
   } else if (kind === 'missiles') {
     for (const [mx, my] of [
       [-9, -4],

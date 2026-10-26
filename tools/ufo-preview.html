@@ -1,0 +1,20 @@
+<!doctype html>
+<html><body style="margin:0;background:#7d8a96">
+<canvas id="c"></canvas>
+<script type="module">
+// 飞碟出图预览：原尺寸 + 2x + 带舷灯 + 显示尺寸
+import { drawUfo, drawLight, UFO_W, UFO_H, UFO_CX, UFO_CY, UFO_LIGHTS } from '/src/effects/ufoArt.ts';
+const c = document.getElementById('c');
+c.width = UFO_W * 4.6; c.height = UFO_H * 2;
+const ctx = c.getContext('2d');
+const light = document.createElement('canvas'); light.width = light.height = 32;
+drawLight(light.getContext('2d'), 32, '#ffd54a');
+const one = (x, y, s, lights) => {
+  ctx.save(); ctx.translate(x, y); ctx.scale(s, s); drawUfo(ctx);
+  if (lights) for (const [lx, ly] of UFO_LIGHTS) ctx.drawImage(light, UFO_CX + lx - 16, UFO_CY + ly - 16);
+  ctx.restore();
+};
+one(0, 0, 2, false);
+one(UFO_W * 2, 0, 2, true);
+one(UFO_W * 4 + 10, UFO_H * 0.6, 0.55, true);
+</script></body></html>

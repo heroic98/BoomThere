@@ -11,7 +11,7 @@ Alt  + 右键        →  唤出技能轮盘（常驻），左键点选技能发
 
 - 轮盘打开期间进入钩子屏蔽模式：所有鼠标输入被拦截（不会误触下层应用），点选由钩子转发判定；15 秒无操作自动取消，退出程序自动解除。
 - 托盘「设置」可改轮盘触发修饰键（Alt/Ctrl/Shift，存于应用数据目录 config.json，立即生效）并开关特效音效。
-- 技能注册表化：往 `src/main.ts` 的 `registerSkills` 加一条即可让轮盘多一片，当前「给我炸」「牛马踩踏」可用，另有两个占位片。
+- 技能注册表化：往 `src/main.ts` 的 `registerSkills` 加一条即可让轮盘多一片，当前「给我炸」「牛马踩踏」「飞碟绑架」可用，另有一个占位片。
 - 轮盘为 POLARIS 浅色能量风格（600×600 基准坐标系整体缩放）：白色玻璃装甲 + 四块独立悬浮扇区 + 珊瑚红中心取消钮；外圈包含正转青蓝/淡紫断环、反转 96 格刻度环、柔和雷达扫光、轨道光点和闪烁星尘；主题色全部集中在 `menu.ts` 的 `THEME` 常量；支持 Normal/Hover/Pressed/Disabled/Selected 五态，打开弹入/反向解锁、悬停发光抬升、关闭收缩。
 
 普通右键完全不受影响；特效播放期间鼠标穿透，仍可正常操作下层软件；同一时间只播一场，连点不会叠加。
@@ -68,6 +68,20 @@ Win32 鼠标钩子识别 Ctrl+右键 (input.rs)
 | 4.3–5.4 s | 牛马沿各自方向穿过目标冲出屏幕，裂纹与踩坑淡出 |
 | 消散后 | 等尘土粒子全部耗尽，再销毁场景并恢复空闲，无残留 |
 
+### 飞碟绑架时间轴（约 5.2 秒）
+
+轮盘唤出瞬间（覆盖层尚未绘制）由 Rust 截取光标周围 320×320 物理像素，只存在内存、只交给本机前端。选中「飞碟绑架」后在截图里识别点击处的头像：估背景色 → 前景掩码 → 洪泛连通块 → 校验近似正方形、边长 18–150px、填充率 → 估算圆角。识别失败（点在气泡、空白或大块界面上）时按点击处 60px 方块兜底。
+
+| 时段 | 内容 |
+| --- | --- |
+| 0.0–0.9 s | 四角括号旋转收拢锁定头像，「目标锁定 · 准备绑架」提示 |
+| 0.35–1.25 s | 飞碟（绿色外星人驾驶、跑马舷灯）弧线俯冲到目标上方悬停；目标贴近屏幕上沿时偏到一侧，光束斜射 |
+| 1.25–1.6 s | 牵引光束展开，扫描环自下而上 |
+| 1.6–2.1 s | 白光沿圆角框切割一圈并飞溅火花，头像脱离，原处留下带内阴影的空洞；头像挣扎抖动 |
+| 2.1–3.05 s | 头像旋转缩小、被吸进发射口 |
+| 3.05–4.2 s | 碟身压扁回弹，光束收起，后仰蓄力后斜向冲出屏幕 |
+| 4.5–5.2 s | 空洞淡出，屏幕复原 |
+
 ## 代码结构
 
 ```
@@ -77,13 +91,17 @@ src/
   effects/airstrike.ts     # playAirstrike(x, y)：GSAP 时间轴与清理
   effects/stampede.ts      # playStampede(x, y)：贴图烘焙、站位与冲锋/交替踩踏/齐踏/撤离时间轴
   effects/stampedeArt.ts   # 牛马矢量绘制（纯 Canvas 2D）：关节腿 + 姿势参数 → 飞奔/站立/人立/踏地帧
+  effects/ufo.ts           # playUfo(x, y)：取样切图、锁定/切割/吸起/离场时间轴
+  effects/ufoArt.ts        # 飞碟矢量绘制（纯 Canvas 2D）：碟身 + 外星人 + 舷灯
+  effects/avatarDetect.ts  # 头像识别（纯函数，tools/test/ 有单测）
   effects/particles.ts     # 程序化贴图 + 火花/烟雾/尾焰/冲击波粒子系统
-  effects/audio.ts         # WebAudio 合成音效（引擎轰鸣 + 爆炸 + 奔袭蹄声 + 踩踏重击，零素材）
+  effects/audio.ts         # WebAudio 合成音效（引擎轰鸣 + 爆炸 + 奔袭蹄声 + 踩踏重击 + 飞碟嗡鸣/光束/离场，零素材）
   engine/pixi.ts           # PixiJS 8 初始化（透明画布、空闲时停 ticker、rAF 节流看门狗）
   settings.ts / css        # 设置面板页（快捷键、音效开关）
 src-tauri/src/
   lib.rs                   # Tauri 初始化、配置装载与装配
   input.rs                 # WH_MOUSE_LL 钩子：技能触发 / 轮盘模式 / 可配置修饰键 / 卸载
+  capture.rs               # 轮盘唤出时 GDI 截取光标附近屏幕，take_capture 命令取回
   overlay.rs               # 覆盖层窗口、托盘（设置/退出）、设置窗口与命令
   config.rs                # 持久化配置（应用数据目录 config.json）
 tools/make-icon.mjs       # 程序化生成 icon.ico（零素材）
@@ -91,7 +109,7 @@ tools/make-icon.mjs       # 程序化生成 icon.ico（零素材）
 
 ## 素材策略
 
-战机使用 640px Canvas 程序化矢量绘制并一次性烘焙为纹理：RX 风格机首 V 鳍、白蓝红三色分层装甲、金色细节、面板刻线、军规标识与双涡轮引擎；牛马使用 Canvas 程序化绘制（两段关节腿、远侧肢体压暗、渐变体色），按姿势参数以 2x 分辨率烘焙 9 帧贴图（6 帧飞奔 + 站立/人立/踏地）；`tools/stampede-preview.html` 出逐帧图，`tools/stampede-live.html?t=秒` 出指定时刻的整场截图（需 `npm run dev`）；炸弹沿用 CC0 素材，粒子/冲击波贴图由 Canvas 径向渐变程序生成，音效由 WebAudio 噪声合成。后续可继续替换 `assets/` 下的爆炸 Sprite Sheet、烟雾纹理与 OGG 音效。
+战机使用 640px Canvas 程序化矢量绘制并一次性烘焙为纹理：RX 风格机首 V 鳍、白蓝红三色分层装甲、金色细节、面板刻线、军规标识与双涡轮引擎；牛马使用 Canvas 程序化绘制（两段关节腿、远侧肢体压暗、渐变体色），按姿势参数以 2x 分辨率烘焙 9 帧贴图（6 帧飞奔 + 站立/人立/踏地）；`tools/stampede-preview.html` 出逐帧图，`tools/stampede-live.html?t=秒` 出指定时刻的整场截图（需 `npm run dev`）；飞碟同样程序化绘制，`tools/ufo-preview.html` 出静态图，`tools/ufo-live.html?t=秒&who=头像序号` 在仿微信聊天画面上出指定时刻截图；头像识别单测：`node --experimental-strip-types --test tools/test/avatar-detect.test.mjs`；炸弹沿用 CC0 素材，粒子/冲击波贴图由 Canvas 径向渐变程序生成，音效由 WebAudio 噪声合成。后续可继续替换 `assets/` 下的爆炸 Sprite Sheet、烟雾纹理与 OGG 音效。
 
 ## 验收对照
 

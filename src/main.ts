@@ -5,6 +5,7 @@ import { initPixi, installRenderWatchdog } from './engine/pixi';
 import { bindParticles, prewarmEffectTextures } from './effects/particles';
 import { playAirstrike, isAirstrikeRunning, preloadAirstrikeAssets } from './effects/airstrike';
 import { isStampedeRunning, playStampede, prewarmStampedeAssets } from './effects/stampede';
+import { isUfoRunning, playUfo, prewarmUfoAssets, setCaptureProvider } from './effects/ufo';
 import { bindRadialMenu, registerEffect, openMenu, updateHover, menuPick, menuHoverInfo, isMenuAnimating, cancelMenu, isMenuOpen, bindAirstrikeRunningCheck } from './effects/menu';
 import { initAudio } from './effects/audio';
 
@@ -46,7 +47,14 @@ function registerSkills(app: Application): void {
     enabled: true,
     run: (x, y) => playStampede(app, x, y),
   });
-  registerEffect({ id: 'missiles', title: '导弹雨', description: '饱和导弹攻击', icon: 'missiles', enabled: false, run: async () => {} });
+  registerEffect({
+    id: 'ufo',
+    title: '飞碟绑架',
+    description: '把头像吸走带回母星',
+    icon: 'ufo',
+    enabled: true,
+    run: (x, y) => playUfo(app, x, y),
+  });
   registerEffect({ id: 'meteor', title: '陨石坠落', description: '天外来物轰炸', icon: 'meteor', enabled: false, run: async () => {} });
 }
 
@@ -96,6 +104,21 @@ async function setupTauriMode(app: Application): Promise<void> {
     cancelMenu();
   });
 
+  // 飞碟取样：Rust 在轮盘唤出瞬间截好光标附近的屏幕，这里取回并换算到覆盖层坐标
+  setCaptureProvider(async () => {
+    const buf = await invoke<ArrayBuffer>('take_capture');
+    if (!overlayGeo || !buf || buf.byteLength < 16) return null;
+    const head = new DataView(buf, 0, 16);
+    const [sx, sy, w, h] = [0, 4, 8, 12].map((o) => head.getInt32(o, true));
+    if (buf.byteLength < 16 + w * h * 4) return null;
+    return {
+      image: { width: w, height: h, data: new Uint8ClampedArray(buf, 16, w * h * 4) },
+      x: (sx - overlayGeo.ox) / overlayGeo.scale,
+      y: (sy - overlayGeo.oy) / overlayGeo.scale,
+      scale: overlayGeo.scale,
+    };
+  });
+
   // Pixi 画布就绪后再显示覆盖层，避免出现白闪
   await invoke('overlay_ready');
 }
@@ -143,7 +166,7 @@ function prewarmRenderer(app: Application): void {
   // 预热轮盘用到的全部文字字形（中文首渲栅格化是首开卡顿源）
   const family = '"Noto Sans SC", "Microsoft YaHei", "PingFang SC", sans-serif';
   const warmText = new Text({
-    text: '给我炸牛马踩踏导弹雨陨石坠落取消呼叫战机空袭此处召唤牛马大军冲锋集结饱和导弹攻击天外来物轰炸敬请期待0123456789',
+    text: '给我炸牛马踩踏飞碟绑架陨石坠落取消呼叫战机空袭此处召唤牛马大军冲锋集结把头像吸走带回母星目标锁定准备出动此处饱和导弹攻击天外来物轰炸敬请期待0123456789',
     style: { fontFamily: family, fontSize: 18, fontWeight: '600', fill: 0x333333 },
   });
   warmText.position.set(-600, -600);
@@ -158,6 +181,11 @@ function prewarmRenderer(app: Application): void {
     s.position.set(-400 + i * 120, -500);
     warm.addChild(s);
   });
+  prewarmUfoAssets().forEach((tex, i) => {
+    const s = new Sprite(tex);
+    s.position.set(-400 + i * 120, -800);
+    warm.addChild(s);
+  });
   warm.position.set(-300, -300);
   app.stage.addChild(warm);
   app.render();
@@ -169,10 +197,10 @@ async function boot(): Promise<void> {
   await preloadAirstrikeAssets(); // 预烘焙矢量机甲战机并预加载炸弹素材
   bindParticles(app);
   bindRadialMenu(app);
-  bindAirstrikeRunningCheck(() => isAirstrikeRunning() || isStampedeRunning());
+  bindAirstrikeRunningCheck(() => isAirstrikeRunning() || isStampedeRunning() || isUfoRunning());
   registerSkills(app);
   prewarmRenderer(app);
-  installRenderWatchdog(app, () => isAirstrikeRunning() || isStampedeRunning() || isMenuOpen() || isMenuAnimating());
+  installRenderWatchdog(app, () => isAirstrikeRunning() || isStampedeRunning() || isUfoRunning() || isMenuOpen() || isMenuAnimating());
 
   if ('__TAURI_INTERNALS__' in window) {
     await setupTauriMode(app);

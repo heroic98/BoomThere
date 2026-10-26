@@ -1,4 +1,4 @@
-// WebAudio 程序化音效（零素材）：引擎轰鸣 + 爆炸。
+// WebAudio 程序化音效（零素材）：引擎轰鸣、爆炸、蹄声、飞碟。
 // 任何失败都静默降级，绝不影响视觉演出。
 
 let ctx: AudioContext | null = null;
@@ -180,6 +180,96 @@ export async function sfxStomp(heavy = false): Promise<void> {
     og.connect(master);
     osc.start(t0);
     track(osc, t0 + (heavy ? 0.6 : 0.2));
+  } catch {
+    /* 忽略音频错误 */
+  }
+}
+
+/** 飞碟悬停嗡鸣：两个失谐方波 + 颤音，duration 秒内淡入淡出。 */
+export async function sfxUfoHum(duration = 3): Promise<void> {
+  if (!soundEnabled()) return;
+  if (!(await ensureRunning()) || !ctx || !master) return;
+  try {
+    const t0 = ctx.currentTime;
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.06, t0 + 0.4);
+    g.gain.setValueAtTime(0.06, t0 + duration - 0.5);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.frequency.value = 900;
+    lp.connect(g);
+    g.connect(master);
+    const lfo = ctx.createOscillator();
+    lfo.frequency.value = 6;
+    const lfoGain = ctx.createGain();
+    lfoGain.gain.value = 14;
+    lfo.connect(lfoGain);
+    for (const f of [180, 183.5]) {
+      const osc = ctx.createOscillator();
+      osc.type = 'square';
+      osc.frequency.value = f;
+      lfoGain.connect(osc.frequency);
+      osc.connect(lp);
+      osc.start(t0);
+      track(osc, t0 + duration + 0.05);
+    }
+    lfo.start(t0);
+    track(lfo, t0 + duration + 0.05);
+  } catch {
+    /* 忽略音频错误 */
+  }
+}
+
+/** 牵引光束：上扫锯齿波 + 共振低通，表现「吸起」。 */
+export async function sfxBeam(duration = 1.4): Promise<void> {
+  if (!soundEnabled()) return;
+  if (!(await ensureRunning()) || !ctx || !master) return;
+  try {
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sawtooth';
+    osc.frequency.setValueAtTime(220, t0);
+    osc.frequency.exponentialRampToValueAtTime(880, t0 + duration);
+    const lp = ctx.createBiquadFilter();
+    lp.type = 'lowpass';
+    lp.Q.value = 8;
+    lp.frequency.setValueAtTime(400, t0);
+    lp.frequency.exponentialRampToValueAtTime(3200, t0 + duration);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.09, t0 + 0.15);
+    g.gain.setValueAtTime(0.09, t0 + duration - 0.2);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + duration);
+    osc.connect(lp);
+    lp.connect(g);
+    g.connect(master);
+    osc.start(t0);
+    track(osc, t0 + duration + 0.05);
+  } catch {
+    /* 忽略音频错误 */
+  }
+}
+
+/** 飞碟加速离场：快速上扫正弦「咻——」。 */
+export async function sfxZip(): Promise<void> {
+  if (!soundEnabled()) return;
+  if (!(await ensureRunning()) || !ctx || !master) return;
+  try {
+    const t0 = ctx.currentTime;
+    const osc = ctx.createOscillator();
+    osc.type = 'sine';
+    osc.frequency.setValueAtTime(300, t0);
+    osc.frequency.exponentialRampToValueAtTime(2400, t0 + 0.35);
+    const g = ctx.createGain();
+    g.gain.setValueAtTime(0.0001, t0);
+    g.gain.exponentialRampToValueAtTime(0.18, t0 + 0.04);
+    g.gain.exponentialRampToValueAtTime(0.0001, t0 + 0.4);
+    osc.connect(g);
+    g.connect(master);
+    osc.start(t0);
+    track(osc, t0 + 0.45);
   } catch {
     /* 忽略音频错误 */
   }

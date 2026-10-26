@@ -1,3 +1,4 @@
+mod capture;
 mod config;
 mod input;
 mod overlay;
@@ -23,6 +24,7 @@ pub fn run() {
             overlay::get_settings,
             overlay::set_settings,
             overlay::open_settings,
+            capture::take_capture,
         ])
         .build(tauri::generate_context!())
         .expect("failed to build BoomThere application")

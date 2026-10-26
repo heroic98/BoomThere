@@ -114,6 +114,10 @@ pub fn install(app: AppHandle) {
     // 事件转发
     std::thread::spawn(move || {
         for (kind, x, y) in rx {
+            // 轮盘唤出时覆盖层还没画，先截一块光标附近的屏幕供「飞碟绑架」切图
+            if kind == EV_MENU_OPEN {
+                crate::capture::capture_around(x, y);
+            }
             let _ = app.emit(event_name(kind), ScreenPoint { screen_x: x, screen_y: y });
         }
     });

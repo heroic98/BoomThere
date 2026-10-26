@@ -1,0 +1,76 @@
+<!doctype html>
+<html><body style="margin:0;overflow:hidden">
+<canvas id="screen" style="position:fixed;left:0;top:0"></canvas>
+<script type="module">
+// 离线预览：仿微信聊天画面当「屏幕」，?t=秒&who=序号 步进到指定时刻出图（需 npm run dev）
+import gsap from 'gsap';
+import { initPixi } from '/src/engine/pixi.ts';
+import { bindParticles } from '/src/effects/particles.ts';
+import { playUfo, prewarmUfoAssets, setCaptureProvider } from '/src/effects/ufo.ts';
+
+const q = new URLSearchParams(location.search);
+const T = Number(q.get('t') || 2);
+const scr = document.getElementById('screen');
+// 与 Pixi 画布（resizeTo: window）同尺寸，保证坐标一致
+const W = innerWidth, H = innerHeight;
+scr.width = W; scr.height = H;
+const c = scr.getContext('2d');
+c.fillStyle = '#ededed'; c.fillRect(0, 0, W, H);
+c.fillStyle = '#f7f7f7'; c.fillRect(0, 0, W, 52);
+c.fillStyle = '#d6d6d6'; c.fillRect(0, 52, W, 1);
+c.fillStyle = '#111'; c.font = '600 16px "Microsoft YaHei"'; c.fillText('相亲相爱一家人 (5)', 24, 32);
+const rr = (x, y, w, h, r) => { c.beginPath(); c.roundRect(x, y, w, h, r); };
+const avatar = (x, y, kind) => {
+  c.save(); rr(x, y, 40, 40, 4); c.clip();
+  if (kind === 0) { const g = c.createLinearGradient(x, y, x + 40, y + 40); g.addColorStop(0, '#ff9a8b'); g.addColorStop(1, '#ff6a88'); c.fillStyle = g; c.fillRect(x, y, 40, 40); c.fillStyle = '#fff'; c.font = '700 20px "Microsoft YaHei"'; c.fillText('妈', x + 10, y + 28); }
+  if (kind === 1) { c.fillStyle = '#87c4ff'; c.fillRect(x, y, 40, 40); c.fillStyle = '#3d8b3d'; c.fillRect(x, y + 26, 40, 14); c.fillStyle = '#ffe066'; c.beginPath(); c.arc(x + 28, y + 12, 6, 0, 7); c.fill(); }
+  if (kind === 2) { c.fillStyle = '#ffffff'; c.fillRect(x, y, 40, 40); c.fillStyle = '#f5a623'; c.beginPath(); c.arc(x + 20, y + 22, 12, 0, 7); c.fill(); c.fillStyle = '#222'; c.beginPath(); c.arc(x + 15, y + 19, 2, 0, 7); c.arc(x + 25, y + 19, 2, 0, 7); c.fill(); }
+  if (kind === 3) { const g = c.createLinearGradient(x, y, x, y + 40); g.addColorStop(0, '#4b6cb7'); g.addColorStop(1, '#182848'); c.fillStyle = g; c.fillRect(x, y, 40, 40); c.fillStyle = '#fff'; c.font = '700 18px "Microsoft YaHei"'; c.fillText('Me', x + 6, y + 27); }
+  c.restore();
+};
+const bubble = (x, y, text, mine) => {
+  c.font = '15px "Microsoft YaHei"';
+  const w = c.measureText(text).width + 24;
+  const bx = mine ? x - w : x;
+  c.fillStyle = mine ? '#95ec69' : '#ffffff'; rr(bx, y, w, 40, 4); c.fill();
+  c.fillStyle = '#111'; c.fillText(text, bx + 12, y + 25);
+};
+const rows = [[0, '今晚回来吃饭吗？'], [1, '周末去爬山的有谁'], [3, '收到，马上到'], [2, '[表情]'], [0, '记得带伞']];
+const avatars = [];
+rows.forEach(([k, text], i) => {
+  const y = 80 + i * 70;
+  if (k === 3) { avatar(W - 64, y, 3); bubble(W - 76, y, text, true); avatars.push([W - 44, y + 20]); }
+  else { avatar(24, y, k); bubble(76, y, text, false); avatars.push([44, y + 20]); }
+});
+
+const app = await initPixi();
+bindParticles(app);
+prewarmUfoAssets();
+localStorage.setItem('bt_sound', '0');
+// 模拟 Rust 取样：从「屏幕」画布截 320×320
+setCaptureProvider(async (x, y) => {
+  const sx = Math.max(0, Math.min(W - 320, Math.round(x - 160)));
+  const sy = Math.max(0, Math.min(H - 320, Math.round(y - 160)));
+  const d = c.getImageData(sx, sy, 320, 320);
+  return { image: { width: 320, height: 320, data: d.data }, x: sx, y: sy, scale: 1 };
+});
+const [ax, ay] = avatars[Number(q.get('who') || 0)];
+// 点击偏离头像中心几个像素，验证识别能自动对齐
+gsap.ticker.sleep();
+const base = gsap.ticker.time;
+void playUfo(app, ax + 6, ay - 5);
+await new Promise((r) => setTimeout(r, 50)); // 等取样完成、时间轴建好
+app.ticker.stop();
+const t0 = performance.now();
+for (let i = 1; i <= Math.round(T * 60); i++) {
+  gsap.updateRoot(base + i / 60);
+  app.ticker.update(t0 + i * 1000 / 60);
+}
+app.ticker.stop();
+const url = await app.renderer.extract.base64({ target: app.stage, frame: app.screen });
+app.canvas.style.display = 'none';
+const img = new Image();
+img.src = url;
+img.style.cssText = `position:fixed;left:0;top:0;width:${W}px;height:${H}px`;
+document.body.appendChild(img);
+</script></body></html>
